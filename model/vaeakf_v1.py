@@ -81,12 +81,12 @@ class VAEAKF(nn.Module):
         self.estimate_A = torch.nn.parameter.Parameter(torch.eye(observation_size), requires_grad=False)
         self.estimate_B = torch.nn.parameter.Parameter(torch.zeros((state_size, input_size)))
         self.estimate_H = torch.nn.parameter.Parameter(torch.zeros((observation_size, state_size)))
-        self.estimate_delta = torch.nn.parameter.Parameter(torch.randn(observation_size)) # noise in observation
+        self.estimate_logdelta = torch.nn.parameter.Parameter(torch.randn(observation_size)) # noise in observation
 
         # endregion
 
-        self.mu = None
-        self.logsigma = None
+        self.state_mu = None
+        self.state_logsigma = None
         self.external_input_seq = None
         self.observations_seq = None
         self.initial_prior_mu, self.initial_prior_sigma = None, None
@@ -106,11 +106,11 @@ class VAEAKF(nn.Module):
             all_seq.contiguous().view(-1, self.observation_size + self.input_size)
         ).view(l, batch_size, self.k)
         z_seq, _ = self.rnn(all_seq)
-        self.mu, self.logsigma = self.gauss_decoder(
+        self.state_mu, self.state_logsigma = self.gauss_decoder(
             z_seq.contiguous().view(-1, self.k)
         )
-        self.mu = self.mu.view(l, batch_size, self.state_size)
-        self.logsigma = self.logsigma.view(l, batch_size, self.state_size)
+        self.state_mu = self.state_mu.view(l, batch_size, self.state_size)
+        self.state_logsigma = self.state_logsigma.view(l, batch_size, self.state_size)
 
 
 
@@ -141,13 +141,13 @@ class VAEAKF(nn.Module):
 
         prior_mu[0]=self.initial_prior_mu
         prior_mu[1:] = torch.nn.functional.linear(
-            self.mu[0:-1],self.estimate_A) + torch.nn.functional.linear(self.external_input_seq[:-1], self.estimate_B)
+            self.state_mu[0:-1],self.estimate_A) + torch.nn.functional.linear(self.external_input_seq[:-1], self.estimate_B)
         prior_cov[0] = self.initial_prior_sigma**2
         prior_cov[1:] = torch.nn.functional.linear(
-            torch.exp(self.logsigma[:-1])**2, self.estimate_A
+            torch.exp(self.state_logsigma[:-1])**2, self.estimate_A
         ) + torch.exp(self.estimate_logsigma)**2
 
-        kl = self.multivariateNormal_kl_loss(prior_mu, prior_cov, self.mu, torch.exp(self.logsigma)**2)
+        kl = self.multivariateNormal_kl_loss(prior_mu, prior_cov, self.state_mu, torch.exp(self.state_logsigma)**2)
         # endregion
 
         # region calculation generative probability p(x|z)
@@ -155,7 +155,7 @@ class VAEAKF(nn.Module):
             state = self.sample_state(max_prob=False)
             observation_mu = torch.nn.functional.linear(state, self.estimate_H)
             observation_cov = torch.diag_embed(
-                torch.exp(self.estimate_delta)**2,
+                torch.exp(self.estimate_logdelta)**2,
             )
             observation_normal_dist = torch.distributions.MultivariateNormal(observation_mu, observation_cov)
             return torch.sum(observation_normal_dist.log_prob(self.observations_seq))
@@ -172,10 +172,10 @@ class VAEAKF(nn.Module):
         sequence will be returned.
         :return:(l, bs, state_size)
         """
-        if self.mu is None:
+        if self.state_mu is None:
             raise AssertionError('You have to call forward method before sampling state')
         if max_prob:
-            return self.mu
-        noise = torch.randn(self.mu.shape).to(self.mu.device)
-        state = noise*torch.exp(self.logsigma) + self.mu
+            return self.state_mu
+        noise = torch.randn(self.state_mu.shape).to(self.state_mu.device)
+        state = noise*torch.exp(self.state_logsigma) + self.state_mu
         return state

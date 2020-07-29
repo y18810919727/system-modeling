@@ -6,12 +6,14 @@ import os
 import json
 
 import torch
-from model import vaeakf_v1
+from model import vaeakf_v1, vaeakf_v2, akf
 
 def generate_model(args):
 
     Model_Factory = {
-       '1': vaeakf_v1.VAEAKF
+       '1': vaeakf_v1.VAEAKF,
+       '2': vaeakf_v2.VAEAKF,
+       '3': akf.AKF,
     }
     model = Model_Factory[str(args.version)](
         input_size=args.input_size,
