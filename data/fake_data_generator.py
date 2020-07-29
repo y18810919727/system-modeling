@@ -15,6 +15,7 @@ begin_state_mu = 50,
 begin_state_sigma = 10.0,
 
 def generate_fake_data(
+        name,
         begin_state_mu=begin_state_mu,
         begin_state_sigma=begin_state_sigma,
         sigma=4.0,
@@ -85,8 +86,7 @@ def generate_fake_data(
             plt.plot(data[:,2])
             plt.plot(data[:,3])
             plt.legend(['mass', 'pressure'])
-
-            plt.savefig('fake.eps', dpi=500)
+            plt.savefig(name + '.eps', dpi=500)
 
 
     if plot:
@@ -99,12 +99,14 @@ def generate_fake_data(
     df = pandas.DataFrame(all_data, columns=title)
     df['round'] = df['round'].astype(int)
     df['t'] = df['t'].astype(int)
-    df.to_csv('fake2.csv')
+    df.to_csv(name + '.csv')
 
 
 
 if __name__ == '__main__':
-    generate_fake_data(plot=True)
+    # generate_fake_data(name='fake.csv', plot=True)
+    # generate_fake_data(name='fake2.csv', plot=True)
+    generate_fake_data(name='fake_val', n=200, plot=True)
 
 
 

@@ -21,6 +21,7 @@ parser.add_argument('--state_size', type=int,  default=None)
 parser.add_argument('--k_size', type=int,  default=32)
 parser.add_argument('--batch_size', type=int,  default=32)
 parser.add_argument('--epochs', type=int,  default=600)
+parser.add_argument('--eval_epochs', type=int,  default=20)
 parser.add_argument('--version', type=int,  default=1)
 parser.add_argument('--L', type=int,  default=5, help='The time for sampling VAE')
 parser.add_argument('--num_layers', type=int,  default=1)
@@ -30,6 +31,7 @@ parser.add_argument('--plt_cnt', type=int,  default=20)
 parser.add_argument('--use_cuda', action='store_true', default=False)
 parser.add_argument('--save_dir', type=str, default='')
 parser.add_argument('--test_id', type=str, default=None)
+parser.add_argument('--reset', action='store_true', default=False, help='clear old logs and ckpt if save_dir exists')
 
 
 
@@ -52,6 +54,7 @@ if args.save_dir != '':
     dirname_list.append(args.save_dir)
 dirname_list.append('v{}'.format(args.version))
 args.save_dir = '_'.join(dirname_list)
+
 
 
 
