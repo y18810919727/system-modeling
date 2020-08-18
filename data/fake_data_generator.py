@@ -11,23 +11,24 @@ from matplotlib import pyplot as plt
 
 import numpy as np
 
-begin_state_mu = 50,
-begin_state_sigma = 10.0,
+begin_state_mu = 80
+begin_state_sigma = 2.0
 
 def generate_fake_data(
         name,
         begin_state_mu=begin_state_mu,
         begin_state_sigma=begin_state_sigma,
-        sigma=4.0,
-        delta=20.0,
-        D=0.7,
+        sigma=2.0,
+        delta=6.0,
+        pressure_bias=10,
+        D=0.78,
         a=1.21,
         b=0.239,
-        c=0,
+        c=1.051,
         plot=False,
         transition_mu=None,
         transition_sigma=None,
-        L=50,
+        L=100,
         n=1000,
 ):
     """
@@ -47,7 +48,7 @@ def generate_fake_data(
     """
 
     if transition_mu is None:
-        transition_mu = [300, 0.3, 100, 0.685]
+        transition_mu = [300, 0.3, 120, 0.68]
     if transition_sigma is None:
         transition_sigma = [30, 0.03, 10, 0.08]
 
@@ -64,17 +65,24 @@ def generate_fake_data(
 
         mass = np.random.normal(begin_state_mu, begin_state_sigma)
         for t in range(L):
-            pressure = mass * D + np.random.normal(0,delta)
+            """
+            先生成input，再生成新的mass，最后得到观测的pressure
+            """
             external_input = np.random.multivariate_normal(transition_mu, transition_sigma**2)
             v_in, c_in, v_out, c_out = tuple(external_input)
+
+            # 将体积的单位转化为 10^2m^3，使得干砂质量单位为10^2t
+            v_in *= 0.05
+            v_out *= 0.05
             rho_in = a*c_in**2 + b**c_in + c
             rho_out = a*c_out**2 + b**c_out + c
             d_mass = v_in*c_in*rho_in - v_out*c_out*rho_out
 
+            mass = mass + d_mass + np.random.normal(0, sigma)
+            pressure = mass * D + pressure_bias + np.random.normal(0,delta)
             data.append(np.array([
                 round, t, float(mass), float(pressure), v_in, c_in, v_out, c_out
             ]))
-            mass = mass + d_mass + np.random.normal(0, sigma)
 
         data = np.array(data)
         all_data.append(data)
@@ -86,6 +94,8 @@ def generate_fake_data(
             plt.plot(data[:,2])
             plt.plot(data[:,3])
             plt.legend(['mass', 'pressure'])
+            plt.ylabel(r'$20t$')
+            plt.xlabel('min')
             plt.savefig(name + '.eps', dpi=500)
 
 
@@ -104,9 +114,9 @@ def generate_fake_data(
 
 
 if __name__ == '__main__':
-    # generate_fake_data(name='fake.csv', plot=True)
-    # generate_fake_data(name='fake2.csv', plot=True)
-    generate_fake_data(name='fake_val', n=200, plot=True)
+    generate_fake_data(name='fake_train.', plot=True)
+    generate_fake_data(name='fake_val', plot=True)
+    generate_fake_data(name='fake_test', n=200, plot=True)
 
 
 

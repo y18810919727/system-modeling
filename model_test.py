@@ -14,6 +14,7 @@ import pandas
 from config import args
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
+from dataset import WesternDataset
 import traceback
 from matplotlib import pyplot as plt
 
@@ -40,7 +41,7 @@ def main(args, logging):
     model = generate_model(args)
     ckpt = torch.load(
         os.path.join(
-            'ckpt', args.save_dir, str(args.test_id)+'.pth'
+            'ckpt', args.save_dir, 'best.pth'
         )
     )
     model.load_state_dict(ckpt['model'])
@@ -48,13 +49,26 @@ def main(args, logging):
         model = model.cuda()
     logging(model)
 
-    test_df = pandas.read_csv('data/fake2.csv')
-    dataset = FakeDataset(test_df)
-    test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
+
+    if args.dataset == 'fake':
+        test_df = pandas.read_csv('data/fake_test.csv')
+        dataset = FakeDataset(test_df)
+        test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
+    elif args.dataset == 'west':
+
+        test_datapath = 'res_2019.1003-1011.csv'
+        from common import detect_and_download
+        detect_and_download(test_datapath)
+        test_df = pandas.read_csv(os.path.join('data', test_datapath))
+        dataset = WesternDataset(test_df, args.length)
+        test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
+    else:
+        raise NotImplementedError
 
     logging('make test loader successfully')
     acc_loss = 0
     acc_mse = 0
+    acc_time = 0
     for i, data in enumerate(test_loader):
 
         external_input, observation, state,initial_mu, initial_sigma =data
@@ -69,36 +83,53 @@ def main(args, logging):
             initial_mu = initial_mu.cuda()
             initial_sigma = initial_sigma.cuda()
 
+        beg_time = time.time()
         model(external_input, observation, initial_mu, initial_sigma)
+        end_time = time.time()
+        acc_time += end_time - beg_time
         loss = model.call_loss()
         estimate_state = model.sample_state(max_prob=True)
-        mse = torch.mean((estimate_state-state)**2)
-        logging('seq = {} likelihood = {:.4f} mse={:.4f}'.format(
-            i, float(loss), float(mse)
+        from common import cal_pearsonr
+        mse = float(cal_pearsonr(estimate_state, state)[0])
+        logging('seq = {} likelihood = {:.4f} mse={:.4f} time={:.4f}'.format(
+            i, float(loss), float(mse), end_time - beg_time
         ))
         acc_loss += float(loss)
         acc_mse += float(mse)
-        if i<args.plt_cnt:
+        if i % int(len(test_loader)//args.plt_cnt) == 0:
             observation = observation.detach().cpu().squeeze()
             state = state.detach().cpu().squeeze()
+            interval_low, interval_high = model.sigma_interval(1)
+            interval_high = interval_high.cpu().squeeze().detach()
+            interval_low = interval_low.cpu().squeeze().detach()
             estimate_state = estimate_state.detach().cpu().squeeze()
 
             assert len(state.shape) == 1
+
             plt.figure()
-            plt.plot(state)
-            plt.plot(estimate_state)
-            plt.plot(observation)
-            plt.legend(['real', 'estimate', 'observation'])
+            plt.plot(observation, label='observation')
+            plt.plot(estimate_state, label='estimate')
+            plt.fill_between(range(len(state)), interval_low, interval_high, facecolor='green', alpha=0.2)
+            if args.dataset == 'fake':
+                plt.plot(state, label='gt')
+                #plt.plot(observation)
+            plt.legend()
             plt.savefig(
                 os.path.join(
                     figs_path, str(i)+'.png'
                 )
             )
+            plt.close()
 
 
-    logging('likelihood = {} mse = {:.4f}'.format(
-       acc_loss/len(test_loader), float(acc_mse/len(test_loader))
+    logging('likelihood = {} mse = {:.4f} time = {:.4f}'.format(
+       acc_loss/len(test_loader), float(acc_mse/len(test_loader)), acc_time/len(test_loader)
     ))
+    logging('B =', str(model.estimate_B))
+    logging('H =', str(model.estimate_H))
+    logging('sigma =', str(torch.exp(model.estimate_logsigma)))
+    logging('delta =', str(torch.exp(model.estimate_logdelta)))
+    logging('bias =', str(torch.exp(model.estimate_bias)))
 
 
 if __name__ == '__main__':
