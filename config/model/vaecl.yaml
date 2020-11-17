@@ -1,0 +1,21 @@
+# @package _group_
+type: vaecl
+k_size: 8
+L: 1
+D: 30
+R: 1
+
+dynamic:
+  type: cl
+  weight_model: lstm
+  k_size: 32
+  num_layers: 1
+  num_linears: 8
+
+posterior:
+  type: lstm
+  k_size: 32
+  num_layers: 1
+
+decoder:
+  type: linear_gauss

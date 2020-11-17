@@ -1,0 +1,6 @@
+# @package _group_
+type: west
+input_size: 4
+observation_size: 1
+dataset_window: 5
+target_names: ['Pressure']

@@ -1,0 +1,9 @@
+# @package _group_
+type: cstr
+input_size: 1
+observation_size: 2
+dataset_window: 2
+train_path: data/cstr/cstr_train.csv
+val_path: data/cstr/cstr_val.csv
+test_path: data/cstr/cstr_test.csv
+target_names: ['concentration', 'temp(K)']

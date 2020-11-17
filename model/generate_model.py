@@ -6,24 +6,24 @@ import os
 import json
 
 import torch
-from model import vaeakf_v1, vaeakf_v2, akf_vb, akf, vaeakf_fixB
+from model import vaeakf_combinational_linears
+
 
 def generate_model(args):
 
-    Model_Factory = {
-       '1': vaeakf_v1.VAEAKF,
-       '2': vaeakf_v2.VAEAKF,
-       '3': akf_vb.AKFVB,
-       '4': akf.AKF,
-       '5': vaeakf_fixB.VAEAKFFixb
-    }
-    model = Model_Factory[str(args.version)](
-        input_size=args.input_size,
-        state_size=args.state_size,
-        observation_size=args.observation_size,
-        net_type=args.net_type,
-        k=args.k_size,
-        num_layers=args.num_layers,
-        L=args.L
-    )
+    if args.model.type == 'vaecl':
+        #model = vaeakf_cl.VAEAKFCombinedLinear(
+        model = vaeakf_combinational_linears.VAEAKFCombinedLinear(
+            input_size=args.dataset.input_size,
+            state_size=args.model.k_size,
+            observations_size=args.dataset.observation_size,
+            k=args.model.posterior.k_size,
+            num_layers=args.model.posterior.num_layers,
+            L=args.model.L,
+            R=args.model.R,
+            D=args.model.D,
+            num_linears=args.model.dynamic.num_linears
+        )
+    else:
+        raise NotImplementedError
     return model

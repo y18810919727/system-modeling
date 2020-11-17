@@ -1,0 +1,46 @@
+#!/usr/bin/python
+# -*- coding:utf8 -*-
+import numpy as np
+import math
+import os
+import json
+
+import torch
+
+def weighted_linear(input, linears, weight):
+    """
+
+    Args:
+        input: len, bs, k
+        linears: nn.ModuleList [ Linear(k,out) for _ in num_linears ]
+        weight:
+
+    Returns:
+
+    """
+    num_linears = len(linears)
+    assert num_linears == weight.shape[-1]
+    weight_weighted = torch.sum(
+        torch.stack([linear.weight for linear in linears], dim=0) * weight.unsqueeze(dim=-1).unsqueeze(dim=-1),
+        dim=-3
+    )
+    bias_weighted = torch.sum(
+        torch.stack([linear.bias for linear in linears], dim=0) * weight.unsqueeze(dim=-1),
+        dim=-2) if linears[0].bias is not None else 0
+    return (weight_weighted @ input.unsqueeze(dim=-1)).squeeze(dim=-1) + bias_weighted
+
+def normal_differential_sample(normal_dist, n=1):
+    """
+
+    Args:
+        normal_dist: torch.distributions.MultivariateNormal
+        n: The number for sampling
+
+    Returns:tensor with shape [n, *with mu()mu.shape]
+    """
+    noise = torch.randn((n, *normal_dist.loc.size()), dtype=normal_dist.loc.dtype,
+                        device=normal_dist.loc.device, layout=normal_dist.loc.layout)
+    n_samples = (torch.cholesky(normal_dist.covariance_matrix) @ noise.unsqueeze(dim=-1)).squeeze(dim=-1) + normal_dist.loc
+    if n==1:
+        n_samples = n_samples.squeeze(dim=0)
+    return n_samples

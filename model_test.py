@@ -1,6 +1,5 @@
 #!/usr/bin/python
 # -*- coding:utf8 -*-
-import numpy as np
 import math
 import os
 import json
@@ -9,22 +8,20 @@ import torch
 import time
 
 
-import pandas
-import pandas
-from config import args
+import pandas as pd
+import numpy as np
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
-from dataset import WesternDataset
+from dataset import WesternDataset, CstrDataset, WindingDataset
 import traceback
 from matplotlib import pyplot as plt
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 
-def set_random_seed(config):
+def set_random_seed(seed):
 
-    if config.random_seed is None:
-        rand_seed = np.random.randint(0,100000)
-    else:
-        rand_seed = config.random_seed
+    rand_seed = np.random.randint(0,100000) if seed is None else seed
     print('random seed = {}'.format(rand_seed))
     np.random.seed(rand_seed)
     torch.manual_seed(rand_seed)
@@ -32,7 +29,7 @@ def set_random_seed(config):
 
 
 def main(args, logging):
-    set_random_seed(args)
+    set_random_seed(args.random_seed)
     from model.generate_model import generate_model
     figs_path = os.path.join(logging.dir, 'figs')
     if not os.path.exists(figs_path):
@@ -41,7 +38,7 @@ def main(args, logging):
     model = generate_model(args)
     ckpt = torch.load(
         os.path.join(
-            'ckpt', args.save_dir, 'best.pth'
+             hydra.utils.get_original_cwd(), args.save_dir, 'best.pth'
         )
     )
     model.load_state_dict(ckpt['model'])
@@ -49,93 +46,215 @@ def main(args, logging):
         model = model.cuda()
     logging(model)
 
-
-    if args.dataset == 'fake':
-        test_df = pandas.read_csv('data/fake_test.csv')
+    if args.dataset.type == 'fake':
+        test_df = pd.read_csv(hydra.utils.get_original_cwd(), 'data/fake_test.csv')
         dataset = FakeDataset(test_df)
         test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
-    elif args.dataset == 'west':
-
-        test_datapath = 'res_2019.1003-1011.csv'
-        from common import detect_and_download
-        detect_and_download(test_datapath)
-        test_df = pandas.read_csv(os.path.join('data', test_datapath))
-        dataset = WesternDataset(test_df, args.length)
-        test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
+    elif args.dataset.type == 'west':
+        data_urls = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data/data_url.csv'))
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/part')
+        if not os.path.exists(base):
+            os.mkdir(base)
+        from common import detect_download
+        data_paths = detect_download(data_urls, base)
+        data_csvs = [pd.read_csv(path) for path in data_paths]
+        dataset_split = [0.6, 0.2, 0.2]
+        train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length, args.dataset.dataset_window)
+        test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.train.num_workers)
+    elif args.dataset.type == 'cstr':
+        dataset = CstrDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        test_loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=args.train.num_workers)
+    elif args.dataset.type == 'winding':
+        dataset = WindingDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        test_loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=args.train.num_workers)
     else:
         raise NotImplementedError
 
     logging('make test loader successfully')
     acc_loss = 0
-    acc_mse = 0
+    acc_rrse = 0
     acc_time = 0
-    for i, data in enumerate(test_loader):
+    acc_name = ['likelihood', 'ob_rrse'] + ['ob_{}_pear'.format(name) for name in args.dataset.target_names] + \
+               ['pred_rrse'] + ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + ['time']
+    acc_info = np.zeros(len(acc_name))
 
-        external_input, observation, state,initial_mu, initial_sigma =data
-        external_input = external_input.permute(1, 0, 2)
-        observation = observation.permute(1, 0, 2)
-        state = state.permute(1, 0, 2)
+    def single_data_generator(acc_info):
+        for i, data in enumerate(test_loader):
 
-        if args.use_cuda:
-            external_input = external_input.cuda()
-            observation = observation.cuda()
-            state = state.cuda()
-            initial_mu = initial_mu.cuda()
-            initial_sigma = initial_sigma.cuda()
+            external_input, observation =data
+            external_input = external_input.permute(1, 0, 2)
+            observation = observation.permute(1, 0, 2)
 
-        beg_time = time.time()
-        model(external_input, observation, initial_mu, initial_sigma)
-        end_time = time.time()
-        acc_time += end_time - beg_time
-        loss = model.call_loss()
-        estimate_state = model.sample_state(max_prob=True)
-        from common import cal_pearsonr
-        mse = float(cal_pearsonr(estimate_state, state)[0])
-        logging('seq = {} likelihood = {:.4f} mse={:.4f} time={:.4f}'.format(
-            i, float(loss), float(mse), end_time - beg_time
-        ))
-        acc_loss += float(loss)
-        acc_mse += float(mse)
-        if i % int(len(test_loader)//args.plt_cnt) == 0:
-            observation = observation.detach().cpu().squeeze()
-            state = state.detach().cpu().squeeze()
-            interval_low, interval_high = model.sigma_interval(1)
-            interval_high = interval_high.cpu().squeeze().detach()
-            interval_low = interval_low.cpu().squeeze().detach()
-            estimate_state = estimate_state.detach().cpu().squeeze()
+            if args.use_cuda:
+                external_input = external_input.cuda()
+                observation = observation.cuda()
 
-            assert len(state.shape) == 1
+            beg_time = time.time()
+            model.forward_posterior(external_input, observation)
+            end_time = time.time()
+            loss, _, _ = model.call_loss()
 
-            plt.figure()
-            plt.plot(observation, label='observation')
-            plt.plot(estimate_state, label='estimate')
-            plt.fill_between(range(len(state)), interval_low, interval_high, facecolor='green', alpha=0.2)
-            if args.dataset == 'fake':
-                plt.plot(state, label='gt')
-                #plt.plot(observation)
-            plt.legend()
-            plt.savefig(
-                os.path.join(
-                    figs_path, str(i)+'.png'
-                )
+            from common import cal_pearsonr, normal_interval, RRSE
+
+            decode_observations_dist = model.decode(model.sample_state(max_prob=True), mode='dist')
+            decode_observations = model.decode(model.sample_state(max_prob=True), mode='sample')
+            decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
+
+
+
+            # region Prediction
+            prefix_length = args.history_length
+            _, _, new_posterior_lstm_state, new_weight_initial_hidden_state = model.forward_posterior(
+                external_input[:prefix_length], observation[:prefix_length]
             )
-            plt.close()
+            pred_observations_dist, pred_observations_sample, _, _, weight_map = model.forward_prediction(
+                external_input[prefix_length:], new_posterior_lstm_state, new_weight_initial_hidden_state,
+                max_prob=True, return_weight_map=True
+            )
+            # endregion
 
 
-    logging('likelihood = {} mse = {:.4f} time = {:.4f}'.format(
-       acc_loss/len(test_loader), float(acc_mse/len(test_loader)), acc_time/len(test_loader)
+            pred_observation_low, pred_observation_high = normal_interval(pred_observations_dist, 2)
+
+            # region statistic
+
+            # 统计参数1： 预测的rrse
+            prediction_rrse = RRSE(observation[prefix_length:], pred_observations_sample)
+            # 统计参数2： 预测的pearson
+            prediction_pearsonr = [float(cal_pearsonr(
+                observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
+            )) for _ in range(observation.shape[-1])]
+            # 统计参数3：重构RRSE
+            rrse = RRSE(
+                observation, decode_observations
+            )
+            # 统计参数4：重构pearson
+            ob_pear = [float(cal_pearsonr(
+                observation[:, :, _], decode_observations[:, :, _]
+            )) for _ in range(observation.shape[-1])]
+
+            target_name = args.dataset.target_names
+            ob_pearson_info = ' '.join(['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
+            pred_pearson_info = ' '.join(['pred_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(
+                prediction_pearsonr, args.dataset.target_names)])
+
+            log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_pearson_info + ' pred_rrse={:.4f} ' + pred_pearson_info + ' time={:.4f}'
+            logging(log_str.format(i, float(loss),
+                                         float(rrse),
+                                         prediction_rrse,
+                                         end_time - beg_time))
+
+            acc_info += np.array([
+                float(loss), float(rrse), *ob_pear, prediction_rrse, *prediction_pearsonr, end_time - beg_time
+            ], dtype=np.float32)
+
+            for i in range(external_input.size()[1]):
+                yield tuple([x[:,i:i+1, :]for x in [observation, decode_observations,
+                                                    decode_observation_low, decode_observation_high,
+                                                    pred_observation_low, pred_observation_high,
+                                                    pred_observations_sample]]+[weight_map])
+
+    for i, result in enumerate(single_data_generator(acc_info)):
+        if i % int(len(dataset)//args.test.plt_cnt) == 0:
+
+            # 遍历每一个被预测指标
+            for _ in range(len(args.dataset.target_names)):
+                observation, decode_observations, decode_observation_low, decode_observation_high, \
+                    pred_observation_low, pred_observation_high, pred_observations_sample = [x[:, :, _]for x in result[:-1]]
+                weight_map = result[-1]
+                target_name = args.dataset.target_names[_]
+                # region 开始画图
+                plt.figure(figsize=(10, 8))
+                ##################图一:隐变量区间展示###########################
+
+                plt.subplot(221)
+                text_list = ['{}={:.4f}'.format(name, value/len(test_loader)) for name, value in zip(acc_name, acc_info)]
+                for pos, text in zip(np.linspace(0, 1, len(text_list)+1)[:-1], text_list):
+                    plt.text(0.2, pos, text)
+                # plt.plot(observation, label='observation')
+                # plt.plot(estimate_state, label='estimate')
+                # plt.fill_between(range(len(state)), interval_low, interval_high, facecolor='green', alpha=0.2,
+                #                  label='hidden')
+                # if args.dataset == 'fake':
+                #     plt.plot(state, label='gt')
+                #     #plt.plot(observation)
+
+                ##################图二:生成观测数据展示###########################
+                plt.subplot(222)
+                observation = observation.detach().cpu().squeeze(dim=1)
+                estimate_observation_low = decode_observation_low.cpu().squeeze().detach()
+                estimate_observation_high = decode_observation_high.cpu().squeeze().detach()
+                plt.plot(range(len(estimate_observation_low)), observation, label=target_name)
+                plt.fill_between(range(len(estimate_observation_low)), estimate_observation_low, estimate_observation_high,
+                                 facecolor='green', alpha=0.2, label='95%')
+                plt.legend()
+
+                ##################图三:weight map 热力图###########################
+                plt.subplot(223)
+                weight = weight_map.mean(dim=1) # 沿着batch维度求平均
+                weight = weight.transpose(1, 0)
+                weight = weight.detach().cpu().numpy()
+                # cs = plt.contourf(weight, cmap=plt.cm.hot)
+                cs = plt.contourf(weight)
+                cs.changed()
+                plt.colorbar()
+                plt.xlabel('Steps')
+                plt.ylabel('Weight of linears')
+
+                ##################图四:预测效果###########################
+                plt.subplot(224)
+                prefix_length = args.history_length
+                plt.plot(range(prefix_length), observation[:prefix_length], label='history')
+                plt.plot(range(prefix_length-1, observation.size()[0]), observation[prefix_length-1:], label='real')
+                plt.plot(range(prefix_length-1, observation.size()[0]),
+                         np.concatenate([[float(observation[prefix_length-1])],
+                                         pred_observations_sample.detach().squeeze().cpu().numpy()]), label='prediction')
+
+                plt.fill_between(range(prefix_length, observation.size()[0]),
+                                 pred_observation_low.detach().squeeze().cpu().numpy(),
+                                 pred_observation_high.detach().squeeze().cpu().numpy(),
+                                 facecolor='green', alpha=0.2, label='95%')
+                plt.ylabel(target_name)
+                plt.legend()
+                # endregion 画图结束
+                plt.savefig(
+                    os.path.join(
+                        figs_path, str(i) + '_' + str(_)+'.png'
+                    )
+                )
+                plt.close()
+
+    logging(' '.join(
+        ['{}={:.4f}'.format(name, value/len(test_loader)) for name, value in zip(acc_name, acc_info)]
     ))
-    logging('B =', str(model.estimate_B))
-    logging('H =', str(model.estimate_H))
-    logging('sigma =', str(torch.exp(model.estimate_logsigma)))
-    logging('delta =', str(torch.exp(model.estimate_logdelta)))
-    logging('bias =', str(torch.exp(model.estimate_bias)))
+
+    def is_parameters_printed(parameter):
+        if 'estimate' in parameter[0]:
+            return True
+        return False
+
+    logging(list(
+        filter(
+            is_parameters_printed,
+            model.named_parameters())
+    ))
 
 
-if __name__ == '__main__':
+@hydra.main(config_path='config', config_name="config.yaml")
+def main_app(args: DictConfig) -> None:
+    print(OmegaConf.to_yaml(args))
 
     from common import SimpleLogger
-    logging = SimpleLogger(os.path.join('ckpt', args.save_dir, 'test.out'))
+
+    if not hasattr(args, 'save_dir'):
+        raise AttributeError('It should specify save_dir attribute in test mode!')
+
+    logging = SimpleLogger(os.path.join(hydra.utils.get_original_cwd(), args.save_dir, 'test.out'))
     try:
         main(args, logging)
     except Exception as e:
@@ -143,5 +262,5 @@ if __name__ == '__main__':
         logging(var)
 
 
-
-
+if __name__ == '__main__':
+    main_app()
