@@ -1,0 +1,4 @@
+object,url
+cstr_test.csv, https://io-system-data.oss-cn-beijing.aliyuncs.com/cstr_test.csv?Expires=1605492452&OSSAccessKeyId=TMP.3KhXQ6ZGRopEBgSX4GEF5hMmaXgpZgJwVu8Jvk8Brp1KxAqNVzpt6wADLQGLYQ3yFhohWvoWziaCfEcX2fwEe8ucDNq12Z&Signature=mH0OoHgZSjMrxbHIBK4MT7A%2BMGk%3D
+cstr_train.csv,https://io-system-data.oss-cn-beijing.aliyuncs.com/cstr_train.csv?Expires=1605492526&OSSAccessKeyId=TMP.3KhXQ6ZGRopEBgSX4GEF5hMmaXgpZgJwVu8Jvk8Brp1KxAqNVzpt6wADLQGLYQ3yFhohWvoWziaCfEcX2fwEe8ucDNq12Z&Signature=Zul1ihMpEfn%2BFl17CjKsAVqZzRY%3D
+cstr_val.csv,https://io-system-data.oss-cn-beijing.aliyuncs.com/cstr_val.csv?Expires=1605492543&OSSAccessKeyId=TMP.3KhXQ6ZGRopEBgSX4GEF5hMmaXgpZgJwVu8Jvk8Brp1KxAqNVzpt6wADLQGLYQ3yFhohWvoWziaCfEcX2fwEe8ucDNq12Z&Signature=mQt0El1cML7akrRDqdwxwiiGSOw%3D

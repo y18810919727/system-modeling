@@ -1,0 +1,4 @@
+# @package _group_
+type: exp
+step_size: 10
+gamma: 0.98

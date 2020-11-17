@@ -104,7 +104,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-data/*.csv
 data/*.eps
 .idea
 
@@ -112,7 +111,7 @@ ckpt/*.pth
 /scripts/entry_remote.sh
 /scripts/test_script.sh
 /results/
-/scripts/
 
 ckpt/*
 !/ckpt/placeholder
+/jupyter/

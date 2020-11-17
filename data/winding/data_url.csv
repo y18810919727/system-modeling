@@ -1,0 +1,4 @@
+object,url
+winding_test.csv, https://io-system-data.oss-cn-beijing.aliyuncs.com/winding_test.csv?Expires=1605534353&OSSAccessKeyId=TMP.3KfeyC2BHQv6BaLXcy1jB9TgqHLaFwYhD4XAaUAj2pHyo2hbydzAFSXxGe9Tc4uveNenEXsw9pBrk227RVsukLn6gsHiU3&Signature=Gi8HJJ66hnY7w57jqhiTbFLDuSM%3D
+winding_train.csv, https://io-system-data.oss-cn-beijing.aliyuncs.com/winding_train.csv?Expires=1605534366&OSSAccessKeyId=TMP.3KfeyC2BHQv6BaLXcy1jB9TgqHLaFwYhD4XAaUAj2pHyo2hbydzAFSXxGe9Tc4uveNenEXsw9pBrk227RVsukLn6gsHiU3&Signature=SFaxVjaRXl84mM6SVFOhVWzmO%2Fc%3D
+winding_val.csv, https://io-system-data.oss-cn-beijing.aliyuncs.com/winding_val.csv?Expires=1605534373&OSSAccessKeyId=TMP.3KfeyC2BHQv6BaLXcy1jB9TgqHLaFwYhD4XAaUAj2pHyo2hbydzAFSXxGe9Tc4uveNenEXsw9pBrk227RVsukLn6gsHiU3&Signature=N4BBCWh%2FiN1Cv7UKROMUoacnx0A%3D

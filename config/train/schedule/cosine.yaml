@@ -1,0 +1,4 @@
+# @package _group_
+type: cosine
+T_max: 20
+eta_min: 1e-7
