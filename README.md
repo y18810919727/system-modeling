@@ -26,7 +26,7 @@ CUDA_VISIBLE_DEVICES=3 python model_test.py +save_dir=multirun/2020-11-16/13-45-
 > 参考```scripts/test_vcl_script.sh```文件
 
 ## 部分参数介绍：
-- ```dataset```: ```cstr``` 或 ```west```或，设定为```west```时自动从aliyun的oss下载数据文件,如果使用仿真数据测试，如果设定为```fake```，则采用仿真数据，需要先运行```data/fake_data_generator.py```生成仿真数据，
+- ```dataset```: ```cstr, west, winding```，```data```目录下无数据时自动从aliyun的oss下载数据文件。
 - ```D``` overshooting最大距离
 - ```k_size``` latent state的大小
 - ```version``` 选择算法模型，
