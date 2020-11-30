@@ -37,6 +37,7 @@ def test_net(model, data_loader, args):
     acc_items = 0
     acc_rrse = 0
     acc_time = 0
+    model.eval()
     for i, data in enumerate(data_loader):
 
         external_input, observation = data
@@ -55,13 +56,14 @@ def test_net(model, data_loader, args):
         acc_items += external_input.shape[1]
 
         acc_rrse += float(common.RRSE(
-            observation, model.decode(model.sample_state(max_prob=False), mode='sample'))
+            observation, model.decode_observation(mode='sample'))
         )*external_input.shape[1]
 
+    model.train()
     return acc_loss/acc_items, acc_rrse/acc_items, acc_time/acc_items
 
 
-def main(args, logging):
+def main_train(args, logging):
     set_random_seed(args.random_seed)
     from model.generate_model import generate_model
     model = generate_model(args)
@@ -224,14 +226,34 @@ def main(args, logging):
 @hydra.main(config_path='config', config_name="config.yaml")
 def main_app(args: DictConfig) -> None:
 
-    from common import SimpleLogger
+    from common import SimpleLogger, training_loss_visualization
+
+    # Model Training
     logging = SimpleLogger('./log.out')
     logging(OmegaConf.to_yaml(args))
     try:
-        main(args, logging)
+        main_train(args, logging)
+        training_loss_visualization('./')
     except Exception as e:
         var = traceback.format_exc()
         logging(var)
+
+    # Evaluation in Test Dataset
+    from model_test import main_test
+    ckpt_path = './'
+    logging = SimpleLogger(
+        os.path.join(
+            ckpt_path, 'test.out'
+        )
+    )
+    try:
+        with torch.no_grad():
+            main_test(args, logging, ckpt_path)
+    except Exception as e:
+        var = traceback.format_exc()
+        logging(var)
+
+
 
 
 if __name__ == '__main__':

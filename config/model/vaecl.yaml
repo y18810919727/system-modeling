@@ -2,13 +2,13 @@
 type: vaecl
 k_size: 8
 L: 1
-D: 30
+D: 10
 R: 1
 
 dynamic:
   type: cl
   weight_model: lstm
-  k_size: 32
+  k_size: 16
   num_layers: 1
   num_linears: 8
 

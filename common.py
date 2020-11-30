@@ -3,14 +3,17 @@
 import numpy as np
 import math
 import os
+import time
 import json
 
 import torch
+
 
 class SimpleLogger(object):
     def __init__(self, f, header='#logger output'):
         dir = os.path.dirname(f)
         self.dir = dir
+        self.begin_time_sec = time.time()
         #print('test dir', dir, 'from', f)
         if not os.path.exists(dir):
             os.makedirs(dir)
@@ -24,6 +27,7 @@ class SimpleLogger(object):
         #log to file
         try:
             with open(self.f, 'a') as fID:
+                fID.write('Time_sec = {:.1f} '.format(time.time()-self.begin_time_sec))
                 fID.write(' '.join(str(a) for a in args)+'\n')
         except:
             print('Warning: could not log to', self.f)
@@ -139,3 +143,56 @@ def split_first_dim(tensor, sizes=None):
     assert type(sizes) is tuple and numpy.prod(sizes) == tensor.size()[0]
     return tensor.contiguous().reshape(*sizes, *tensor.size()[1:])
 
+
+def training_loss_visualization(base_dir):
+    from matplotlib import pyplot as plt
+    import re
+    import os
+    x_dataset_time = []
+    y_dataset_train_loss = []
+    y_dataset_kl_loss = []
+    y_dataset_likelihood_loss = []
+    x_dataset_eval_time = []
+    y_dataset_eval_loss = []
+    y_dataset_eval_train_loss = []
+    f = open(os.path.join(base_dir, 'log.out'))
+    data = f.readlines()
+    f.close()
+    for line in data:
+        if re.search('train_loss', line):
+            pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
+            result = pattern.findall(line)
+            x_dataset_time.append(float(result[0]))
+            y_dataset_train_loss.append(float(result[2]))
+            y_dataset_kl_loss.append(float(result[3]))
+            y_dataset_likelihood_loss.append(float(result[4]))
+        elif re.search('rrse', line):
+            y_dataset_eval_train_loss.append(float(result[2]))
+            # print(y_dataset_eval_train_loss)
+            pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
+            result = pattern.findall(line)
+            x_dataset_eval_time.append(float(result[0]))
+            y_dataset_eval_loss.append(float(result[2]))
+    plt.figure()
+    plt.plot(x_dataset_time, y_dataset_train_loss, color='red', label="train_loss")
+    plt.plot(x_dataset_time, y_dataset_kl_loss, color='blue', label="kl_loss")
+    plt.plot(x_dataset_time, y_dataset_likelihood_loss, color='black', label="likelihood_loss")
+    plt.xlabel('Time(s)')
+    plt.ylabel('loss')
+    plt.title('train_loss')
+    # plt.xticks(())
+    # plt.yticks(())
+    plt.legend()
+    plt.savefig(os.path.join('.', 'train_loss.png'))
+
+    plt.figure()
+    fig, ax = plt.subplots(1, 1)
+    plt.plot(x_dataset_eval_time, y_dataset_eval_loss, 'g-', label='eval_loss')
+    plt.plot(x_dataset_eval_time, y_dataset_eval_train_loss, 'r-', label='train_loss')
+    plt.legend()
+    plt.xlabel('Time(s)')
+    ax.set_ylabel('eval_loss')
+    ax.set_title('eval_loss')
+    plt.savefig(os.path.join('.', 'val_loss.png'))
+    # plt.plot(x_dataset_time,y_dataset_train_loss,color='red',label="train_loss")
+    # plt.plot(x_dataset_eval_time,y_dataset_eval_loss,color='black',label="loss")
