@@ -35,7 +35,7 @@ class CombinationalLinears(nn.Module):
             nn.Linear(hidden_size, num_linears),
             nn.Softmax(dim=-1)
         )
-        self.estimate_logsigma = torch.nn.parameter.Parameter(torch.randn(state_size))  # noise in processing
+        self.estimate_logsigma = torch.nn.parameter.Parameter(torch.randn(num_linears, state_size))
 
     def forward(self, state, external_input, args):
         """
@@ -55,15 +55,17 @@ class CombinationalLinears(nn.Module):
         try:
             weight_map = self.linears_weight_fcn(
                 lstm_weight_hidden_state[0][-1]
-            )
+            )  # (bs, num_layers)
             next_mu = weighted_linear(
                 state, linears=self.linears_state, weight=weight_map
             ) + weighted_linear(external_input, linears=self.linears_input, weight=weight_map)
+
+            next_cov = logsigma2cov(
+                weight_map @ self.estimate_logsigma
+            )
         except Exception as e:
             print('external_input shape: %s    state shape: %s\n' % (external_input.shape, state.shape))
             raise e
-
-        next_cov = logsigma2cov(self.estimate_logsigma)
 
         predicted_dist = MultivariateNormal(next_mu, next_cov)
         sample = normal_differential_sample(predicted_dist)

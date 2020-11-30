@@ -1,0 +1,10 @@
+# @package _group_
+type: srnn
+state_size: 8
+filtering: yes
+net_type: gru
+k_size: 32
+num_layers: 1
+
+
+

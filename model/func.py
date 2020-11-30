@@ -44,3 +44,21 @@ def normal_differential_sample(normal_dist, n=1):
     if n==1:
         n_samples = n_samples.squeeze(dim=0)
     return n_samples
+
+
+def multivariat_normal_kl_loss(mu1, cov1, mu2, cov2):
+    """
+    Calculating the kl divergence of two  Multivariate Normal distributions
+    references:
+    1. https://pytorch.org/docs/stable/distributions.html?highlight=kl#torch.distributions.kl.kl_divergence
+    2. https://zhuanlan.zhihu.com/p/22464760
+    :param mu1: (Len, batch_size, k)
+    :param mu2:
+    :param sigma1:
+    :param sigma2:
+    :return:  a scalar loss
+    """
+    dist1 = torch.distributions.MultivariateNormal(mu1, cov1)
+    dist2 = torch.distributions.MultivariateNormal(mu2, cov2)
+    kl = torch.distributions.kl.kl_divergence(dist1, dist2)
+    return torch.sum(kl)

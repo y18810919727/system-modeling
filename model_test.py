@@ -28,7 +28,7 @@ def set_random_seed(seed):
     torch.cuda.manual_seed(rand_seed)
 
 
-def main(args, logging):
+def main_test(args, logging, ckpt_path):
     set_random_seed(args.random_seed)
     from model.generate_model import generate_model
     figs_path = os.path.join(logging.dir, 'figs')
@@ -38,18 +38,18 @@ def main(args, logging):
     model = generate_model(args)
     ckpt = torch.load(
         os.path.join(
-             hydra.utils.get_original_cwd(), args.save_dir, 'best.pth'
+             ckpt_path, 'best.pth'
         )
     )
     model.load_state_dict(ckpt['model'])
     if args.use_cuda:
         model = model.cuda()
+    model.eval()
     logging(model)
-
     if args.dataset.type == 'fake':
         test_df = pd.read_csv(hydra.utils.get_original_cwd(), 'data/fake_test.csv')
         dataset = FakeDataset(test_df)
-        test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
+        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.num_workers)
     elif args.dataset.type == 'west':
         data_urls = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data/data_url.csv'))
         base = os.path.join(hydra.utils.get_original_cwd(), 'data/part')
@@ -61,17 +61,17 @@ def main(args, logging):
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
         dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length, args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'winding':
         dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
     else:
         raise NotImplementedError
 
@@ -101,23 +101,25 @@ def main(args, logging):
 
             from common import cal_pearsonr, normal_interval, RRSE
 
-            decode_observations_dist = model.decode(model.sample_state(max_prob=True), mode='dist')
-            decode_observations = model.decode(model.sample_state(max_prob=True), mode='sample')
+            decode_observations_dist = model.decode_observation(mode='dist')
+            decode_observations = model.decode_observation(mode='sample')
             decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
 
 
 
             # region Prediction
             prefix_length = args.history_length
-            _, _, new_posterior_lstm_state, new_weight_initial_hidden_state = model.forward_posterior(
+            _, _, memory_state = model.forward_posterior(
                 external_input[:prefix_length], observation[:prefix_length]
             )
-            pred_observations_dist, pred_observations_sample, _, _, weight_map = model.forward_prediction(
-                external_input[prefix_length:], new_posterior_lstm_state, new_weight_initial_hidden_state,
-                max_prob=True, return_weight_map=True
+            pred_observations_dist, pred_observations_sample, memory_state = model.forward_prediction(
+                external_input[prefix_length:],  max_prob=True, memory_state=memory_state
             )
+            if args.model.type == 'vaecl':
+                weight_map = memory_state['weight_map']
+            else:
+                weight_map = torch.zeros((2, 1, 2)) # minimal shaoe
             # endregion
-
 
             pred_observation_low, pred_observation_high = normal_interval(pred_observations_dist, 2)
 
@@ -137,6 +139,9 @@ def main(args, logging):
             ob_pear = [float(cal_pearsonr(
                 observation[:, :, _], decode_observations[:, :, _]
             )) for _ in range(observation.shape[-1])]
+
+            # 统计参数5: 真实序列在预测分布上的似然
+
 
             target_name = args.dataset.target_names
             ob_pearson_info = ' '.join(['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
@@ -194,20 +199,8 @@ def main(args, logging):
                                  facecolor='green', alpha=0.2, label='95%')
                 plt.legend()
 
-                ##################图三:weight map 热力图###########################
+                ##################图三:预测效果###########################
                 plt.subplot(223)
-                weight = weight_map.mean(dim=1) # 沿着batch维度求平均
-                weight = weight.transpose(1, 0)
-                weight = weight.detach().cpu().numpy()
-                # cs = plt.contourf(weight, cmap=plt.cm.hot)
-                cs = plt.contourf(weight)
-                cs.changed()
-                plt.colorbar()
-                plt.xlabel('Steps')
-                plt.ylabel('Weight of linears')
-
-                ##################图四:预测效果###########################
-                plt.subplot(224)
                 prefix_length = args.history_length
                 plt.plot(range(prefix_length), observation[:prefix_length], label='history')
                 plt.plot(range(prefix_length-1, observation.size()[0]), observation[prefix_length-1:], label='real')
@@ -221,6 +214,19 @@ def main(args, logging):
                                  facecolor='green', alpha=0.2, label='95%')
                 plt.ylabel(target_name)
                 plt.legend()
+
+                ##################图四:weight map 热力图###########################
+                plt.subplot(224)
+                weight = weight_map.mean(dim=1) # 沿着batch维度求平均
+                weight = weight.transpose(1, 0)
+                weight = weight.detach().cpu().numpy()
+                # cs = plt.contourf(weight, cmap=plt.cm.hot)
+                cs = plt.contourf(weight)
+                cs.changed()
+                plt.colorbar()
+                plt.xlabel('Steps')
+                plt.ylabel('Weight of linears')
+
                 # endregion 画图结束
                 plt.savefig(
                     os.path.join(
@@ -254,9 +260,11 @@ def main_app(args: DictConfig) -> None:
     if not hasattr(args, 'save_dir'):
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
-    logging = SimpleLogger(os.path.join(hydra.utils.get_original_cwd(), args.save_dir, 'test.out'))
+    ckpt_path = os.path.join(hydra.utils.get_original_cwd(), args.save_dir)
+    logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
     try:
-        main(args, logging)
+        with torch.no_grad():
+            main_test(args, logging, ckpt_path)
     except Exception as e:
         var = traceback.format_exc()
         logging(var)

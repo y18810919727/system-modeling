@@ -47,3 +47,23 @@ class PreProcess(nn.Module):
         t = torch.tanh(self.fc1(input))
         t = self.fc2(t)
         return t
+
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_num, out_size, num_mlp_layers, nonlinearity=torch.nn.Tanh):
+        super(MLP, self).__init__()
+        L = nn.ModuleList()
+        L.append(nn.Linear(input_size, hidden_num))
+        L.append(nonlinearity())
+        for _ in range(num_mlp_layers-1):
+            L.append(nn.Linear(hidden_num, hidden_num))
+            L.append(nonlinearity())
+        L.append(nn.Linear(hidden_num, out_size))
+        self.mlp = nn.Sequential(
+            *L
+        )
+
+    def forward(self, x):
+        return self.mlp(x)
+
+

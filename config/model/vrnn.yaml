@@ -1,0 +1,9 @@
+# @package _group_
+type: vrnn
+state_size: 8
+net_type: gru
+k_size: 32
+num_layers: 1
+
+
+
