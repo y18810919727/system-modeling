@@ -4,6 +4,7 @@ state_size: 8
 net_type: gru
 k_size: 32
 num_layers: 1
+D: 5
 
 
 

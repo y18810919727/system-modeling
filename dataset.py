@@ -51,7 +51,15 @@ class FakeDataset(Dataset):
 
 
 class WesternDataset(Dataset):
-    def __init__(self,df_list, length=1000, step=5):
+    def __init__(self,df_list, length=1000, step=5, dilation=2):
+        """
+
+        Args:
+            df_list:
+            length:
+            step: 数据segment切割窗口的移动步长
+            dilation: 浓密机数据采样频率(1 min)过高，dilation表示数据稀释间距
+        """
         if not isinstance(df_list, list):
             df_list = [df_list]
         df_split_all = []
@@ -60,11 +68,12 @@ class WesternDataset(Dataset):
         #每个column对应的数据含义 ['c_in','c_out', 'v_out', 'v_in', 'pressure']
         self.used_columns = ['4','11','14','16','17']
         self.length = length
+        self.dilation = dilation
 
         for df in df_list:
             df_split_all = df_split_all + self.split_df(df[self.used_columns])
         for i, df in enumerate(df_split_all):
-            for j in range(0,df.shape[0]-length+1, step):
+            for j in range(0, df.shape[0]-length * dilation + 1, step):
                 begin_pos_pair.append((i,j))
         self.begin_pos_pair = begin_pos_pair
         self.df_split_all = df_split_all
@@ -102,7 +111,8 @@ class WesternDataset(Dataset):
 
     def __getitem__(self, item):
         df_index, pos = self.begin_pos_pair[item]
-        data_array = np.array(self.df_split_all[df_index].iloc[pos:pos+self.length], dtype=np.float32)
+        data_array = np.array(self.df_split_all[df_index].iloc[pos:pos+self.length*self.dilation], dtype=np.float32)
+        data_array = data_array[np.arange(self.length) * self.dilation]
         # c_in = data_array[:, 0]
         # c_out = data_array[:, 1]
         c_in, c_out, v_out, v_in, pressure = [np.squeeze(x, axis=1) for x in np.hsplit(data_array, 5)]
@@ -116,13 +126,13 @@ class WesternDataset(Dataset):
                 c_in*c_in*v_in - c_out*c_out*v_out,
                 c_in*v_in - c_out*v_out,
                 v_in - v_out,
+                v_in,
+                v_out,
+                c_in,
+                c_out
             ],
             axis=1)
         observation = pressure
-
-
-        # 真实数据不知道干砂质量，这里就随便写了
-        state = pressure/0.80
 
         return external_input, np.expand_dims(observation, axis=1)
 

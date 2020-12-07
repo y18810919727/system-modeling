@@ -8,9 +8,10 @@ import json
 import torch
 from torch import nn
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
-from model.func import weighted_linear, normal_differential_sample
+from model.func import weighted_linear, normal_differential_sample, multivariate_normal_kl_loss
 from model.dynamic.combinational_linears import CombinationalLinears
 from model.common import DBlock, PreProcess
+
 
 
 class VAEAKFCombinedLinear(nn.Module):
@@ -186,23 +187,6 @@ class VAEAKFCombinedLinear(nn.Module):
 
         return lstm_state
 
-    @ staticmethod
-    def multivariat_normal_kl_loss(mu1, cov1, mu2, cov2):
-        """
-        Calculating the kl divergence of two  Multivariate Normal distributions
-        references:
-        1. https://pytorch.org/docs/stable/distributions.html?highlight=kl#torch.distributions.kl.kl_divergence
-        2. https://zhuanlan.zhihu.com/p/22464760
-        :param mu1: (Len, batch_size, k)
-        :param mu2:
-        :param sigma1:
-        :param sigma2:
-        :return:  a scalar loss
-        """
-        dist1 = torch.distributions.MultivariateNormal(mu1, cov1)
-        dist2 = torch.distributions.MultivariateNormal(mu2, cov2)
-        kl = torch.distributions.kl.kl_divergence(dist1, dist2)
-        return torch.sum(kl)
 
     def call_loss(self):
         """
@@ -357,7 +341,7 @@ class VAEAKFCombinedLinear(nn.Module):
                                                              merge_first_two_dims(seq_gather(self.external_input_seq, current_sampled_positions)),
                                                              ((hn, cn),))
                 # 计算训练位置i,后验分布q(i)与先验分布p(i|i-1)的kl散度
-                kl = self.multivariat_normal_kl_loss(self.state_mu[-trained_length:],
+                kl = multivariate_normal_kl_loss(self.state_mu[-trained_length:],
                                                      logsigma2cov(self.state_logsigma[-trained_length:]),
                                                      split_first_dim(one_step_predicted_dist.loc, (trained_length, bs)),
                                                      split_first_dim(one_step_predicted_dist.covariance_matrix, (trained_length, bs))
