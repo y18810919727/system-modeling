@@ -105,9 +105,11 @@ def main_train(args, logging):
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
         train_dataset = WesternDataset(data_csvs[:train_size],
-                                       args.history_length + args.forward_length, step=args.dataset.dataset_window)
+                                       args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                       dilation=args.dataset.dilation)
         val_dataset = WesternDataset(data_csvs[train_size:train_size + val_size],
-                                     args.history_length + args.forward_length, step=args.dataset.dataset_window)
+                                     args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                     dilation=args.dataset.dilation)
     elif args.dataset.type.startswith('cstr'):
         data_urls = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/cstr/data_url.csv')

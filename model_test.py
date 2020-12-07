@@ -60,7 +60,8 @@ def main_test(args, logging, ckpt_path):
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
-        dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length, args.dataset.dataset_window)
+        dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
+                                 args.dataset.dataset_window, dilation=args.dataset.dilation)
         test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
@@ -104,8 +105,6 @@ def main_test(args, logging, ckpt_path):
             decode_observations_dist = model.decode_observation(mode='dist')
             decode_observations = model.decode_observation(mode='sample')
             decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
-
-
 
             # region Prediction
             prefix_length = args.history_length
