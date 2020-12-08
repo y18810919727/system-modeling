@@ -10,6 +10,7 @@ import torch
 from model import vaeakf_combinational_linears as vaeakf_combinational_linears
 from model.srnn import SRNN
 from model.vrnn import VRNN
+from model.deepar import DeepAR
 #from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
 
 
@@ -47,7 +48,14 @@ def generate_model(args):
             k=args.model.k_size,
             num_layers=args.model.num_layers,
         )
-
+    elif args.model.type == 'deepar':
+        model = DeepAR(
+            input_size=args.dataset.input_size,
+            observations_size=args.dataset.observation_size,
+            net_type=args.model.net_type,
+            k=args.model.k_size,
+            num_layers=args.model.num_layers
+        )
     else:
         raise NotImplementedError
     return model

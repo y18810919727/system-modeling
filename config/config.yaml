@@ -1,8 +1,8 @@
 random_seed: ~
 use_cuda: yes
 mode: train
-history_length: 120
-forward_length: 80
+history_length: 40
+forward_length: 160
 save_dir: tmp
 train:
     epochs: 800
