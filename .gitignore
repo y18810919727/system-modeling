@@ -112,7 +112,11 @@ ckpt/*.pth
 /results/
 
 !/ckpt/placeholder
-/jupyter/
+/jupyter/*.png
+/jupyter/*.mp4
+/jupyter/*.ipynb
+/jupyter/*.py
+/jupyter/*.csv
 !/jupyter/generate_data_frame.ipynb
 !/jupyter/ErrorTest.ipynb
 !/jupyter/ErrorLog.ipynb
