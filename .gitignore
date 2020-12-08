@@ -108,10 +108,14 @@ data/*.eps
 .idea
 
 ckpt/*.pth
-/scripts/entry_remote.sh
 /scripts/test_script.sh
 /results/
 
-ckpt/*
 !/ckpt/placeholder
 /jupyter/
+!/jupyter/generate_data_frame.ipynb
+!/jupyter/ErrorTest.ipynb
+!/jupyter/ErrorLog.ipynb
+!/jupyter/Redraw.ipynb
+scripts/tmp/
+/ckpt/

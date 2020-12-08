@@ -46,7 +46,7 @@ def normal_differential_sample(normal_dist, n=1):
     return n_samples
 
 
-def multivariat_normal_kl_loss(mu1, cov1, mu2, cov2):
+def multivariate_normal_kl_loss(mu1, cov1, mu2, cov2):
     """
     Calculating the kl divergence of two  Multivariate Normal distributions
     references:
@@ -62,3 +62,14 @@ def multivariat_normal_kl_loss(mu1, cov1, mu2, cov2):
     dist2 = torch.distributions.MultivariateNormal(mu2, cov2)
     kl = torch.distributions.kl.kl_divergence(dist1, dist2)
     return torch.sum(kl)
+
+
+def zeros_like_with_shape(tensor, shape=None):
+    if shape is None:
+        shape = tensor.shape
+
+    return torch.zeros(shape,
+                       device=tensor.device,
+                       dtype=tensor.dtype,
+                       layout=tensor.layout
+                       )

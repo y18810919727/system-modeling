@@ -8,7 +8,7 @@ import json
 import torch
 from torch import nn
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
-from model.func import weighted_linear, normal_differential_sample, multivariat_normal_kl_loss
+from model.func import weighted_linear, normal_differential_sample, multivariate_normal_kl_loss
 from model.dynamic.combinational_linears import CombinationalLinears
 from model.common import DBlock, PreProcess
 
@@ -287,7 +287,7 @@ class VAEAKFCombinedLinear(nn.Module):
                     merge_first_two_dims(predicted_state_sampled),
                     merge_first_two_dims(external_input_need), ((hn, cn),)
                 )
-                sum_kl += multivariat_normal_kl_loss(self.state_mu[-length:],
+                sum_kl += multivariate_normal_kl_loss(self.state_mu[-length:],
                                                      logsigma2cov(self.state_logsigma[-length:]),
                                                      split_first_dim(next_state_dist.loc, (length, bs)),
                                                      split_first_dim(next_state_dist.covariance_matrix, (length, bs))

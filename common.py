@@ -145,6 +145,7 @@ def split_first_dim(tensor, sizes=None):
 
 
 def training_loss_visualization(base_dir):
+    print(base_dir)
     from matplotlib import pyplot as plt
     import re
     import os
@@ -183,7 +184,7 @@ def training_loss_visualization(base_dir):
     # plt.xticks(())
     # plt.yticks(())
     plt.legend()
-    plt.savefig(os.path.join('.', 'train_loss.png'))
+    plt.savefig(os.path.join(base_dir, 'train_loss.png'))
 
     plt.figure()
     fig, ax = plt.subplots(1, 1)
@@ -193,6 +194,7 @@ def training_loss_visualization(base_dir):
     plt.xlabel('Time(s)')
     ax.set_ylabel('eval_loss')
     ax.set_title('eval_loss')
-    plt.savefig(os.path.join('.', 'val_loss.png'))
+    plt.savefig(os.path.join(base_dir, 'val_loss.png'))
+    plt.close()                     #关闭图像，避免出现wraning
     # plt.plot(x_dataset_time,y_dataset_train_loss,color='red',label="train_loss")
     # plt.plot(x_dataset_eval_time,y_dataset_eval_loss,color='black',label="loss")

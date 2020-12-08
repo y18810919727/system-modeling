@@ -1,6 +1,6 @@
 # @package _group_
 type: vaecl
-k_size: 8
+state_size: 8
 L: 1
 D: 10
 R: 1

@@ -7,7 +7,7 @@ save_dir: tmp
 train:
     epochs: 800
     max_epochs_stop: 100
-    batch_size: 256
+    batch_size: 128
     eval_epochs: 10
     num_workers: 8
 
