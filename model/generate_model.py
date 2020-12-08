@@ -20,7 +20,7 @@ def generate_model(args):
         #model = vaeakf_cl.VAEAKFCombinedLinear(
         model = vaeakf_combinational_linears.VAEAKFCombinedLinear(
             input_size=args.dataset.input_size,
-            state_size=args.model.k_size,
+            state_size=args.model.state_size,
             observations_size=args.dataset.observation_size,
             k=args.model.posterior.k_size,
             num_layers=args.model.posterior.num_layers,
@@ -37,7 +37,8 @@ def generate_model(args):
             net_type=args.model.net_type,
             k=args.model.k_size,
             num_layers=args.model.num_layers,
-            filtering=args.model.filtering
+            filtering=args.model.filtering,
+            D=args.model.D
         )
     elif args.model.type == 'vrnn':
         model = VRNN(
@@ -47,6 +48,7 @@ def generate_model(args):
             net_type=args.model.net_type,
             k=args.model.k_size,
             num_layers=args.model.num_layers,
+            D=args.model.D
         )
     elif args.model.type == 'deepar':
         model = DeepAR(

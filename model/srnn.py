@@ -11,12 +11,12 @@ from torch import nn
 from model.common import DBlock, PreProcess, MLP
 
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
-from model.func import normal_differential_sample, multivariat_normal_kl_loss
+from model.func import normal_differential_sample, multivariate_normal_kl_loss
 
 
 class SRNN(nn.Module):
     def __init__(self, input_size, state_size, observations_size, net_type='rnn', k=16, num_layers=1,
-                 filtering=True):
+                 filtering=True, D=1):
 
         super(SRNN, self).__init__()
 
@@ -26,6 +26,7 @@ class SRNN(nn.Module):
         self.input_size = input_size
         self.num_layers = num_layers
         self.filtering = filtering
+        self.D = D
         if net_type == 'rnn':
             RnnClass = torch.nn.RNN
         elif net_type == 'gru':
@@ -132,22 +133,48 @@ class SRNN(nn.Module):
         return observations_dist, observations_sample, {'dn': dn, 'zn': z_t_minus_one}
 
     def call_loss(self):
+
+        D = self.D if self.training else 1
         l, batch_size, _ = self.observations_seq.shape
         memory_state = self.memory_state
         z_t_minus_one = torch.zeros((batch_size, self.state_size), device=self.external_input_seq.device) if memory_state is None else memory_state['zn']
 
         z_t_minus_one_seq = torch.cat([z_t_minus_one.unsqueeze(0), self.sampled_state[:-1]], dim=0)
 
-        prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-            torch.cat([z_t_minus_one_seq, self.d_seq], dim=-1)
-        )
+        # prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
+        #     torch.cat([z_t_minus_one_seq, self.d_seq], dim=-1)
+        # )
+        #
+        # kl_sum = multivariat_normal_kl_loss(
+        #     self.state_mu,
+        #     logsigma2cov(self.state_logsigma),
+        #     prior_z_t_seq_mean,
+        #     logsigma2cov(prior_z_t_seq_logsigma)
+        # )
 
-        kl_sum = multivariat_normal_kl_loss(
-            self.state_mu,
-            logsigma2cov(self.state_logsigma),
-            prior_z_t_seq_mean,
-            logsigma2cov(prior_z_t_seq_logsigma)
-        )
+        kl_sum = 0
+
+        predicted_state_sampled = z_t_minus_one_seq  # shape with (l,bs,state_size)
+        for step in range(D):
+
+            length = predicted_state_sampled.size()[0]
+            prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
+                torch.cat([predicted_state_sampled, self.d_seq[-length:]], dim=-1)
+            )
+
+            kl_sum += multivariate_normal_kl_loss(
+                self.state_mu[-length:],
+                logsigma2cov(self.state_logsigma[-length:]),
+                prior_z_t_seq_mean,
+                logsigma2cov(prior_z_t_seq_logsigma)
+            )
+            predicted_state_sampled = normal_differential_sample(
+                torch.distributions.MultivariateNormal(
+                    prior_z_t_seq_mean, logsigma2cov(prior_z_t_seq_logsigma)
+                )
+            )[:-1]
+
+        kl_sum = kl_sum/D
 
         # kl_sum = 0
         # kl_list = []
