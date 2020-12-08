@@ -1,0 +1,9 @@
+# @package _group_
+type: deepar
+filtering: yes
+net_type: rnn
+k_size: 32
+num_layers: 1
+
+
+
