@@ -40,7 +40,12 @@ def normal_differential_sample(normal_dist, n=1):
     """
     noise = torch.randn((n, *normal_dist.loc.size()), dtype=normal_dist.loc.dtype,
                         device=normal_dist.loc.device, layout=normal_dist.loc.layout)
-    n_samples = (torch.cholesky(normal_dist.covariance_matrix) @ noise.unsqueeze(dim=-1)).squeeze(dim=-1) + normal_dist.loc
+    # n_samples = (torch.cholesky(normal_dist.covariance_matrix) @ noise.unsqueeze(dim=-1)).squeeze(dim=-1) + normal_dist.loc
+    # It seems that torch.cholesky has a strange bug during decomposing batch matrix when using GPU
+    # https://discuss.pytorch.org/t/cuda-illegal-memory-access-when-using-batched-torch-cholesky/51624/3
+
+    # In our experiments, all of the covariance matrix are diagonal matrix. So
+    n_samples = (torch.sqrt(normal_dist.covariance_matrix) @ noise.unsqueeze(dim=-1)).squeeze(dim=-1) + normal_dist.loc
     if n==1:
         n_samples = n_samples.squeeze(dim=0)
     return n_samples

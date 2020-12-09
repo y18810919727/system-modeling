@@ -75,7 +75,7 @@ def main_train(args, logging):
     if args.train.optim.type == 'adam':
         optimizer = torch.optim.Adam(model.parameters(), lr=args.train.optim.lr)
     elif args.train.optim.type == 'sgd':
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.train.optim.lr)
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.train.optim.lr)
 
     if args.train.schedule.type is None:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=1)
