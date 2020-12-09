@@ -66,4 +66,44 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
+from torch.distributions.multivariate_normal import MultivariateNormal, _precision_to_scale_tril, _batch_mahalanobis
+
+
+class DiagMultivariateNormal(torch.distributions.multivariate_normal.MultivariateNormal):
+    def __init__(self, loc, covariance_matrix=None, precision_matrix=None, scale_tril=None, validate_args=None):
+        if loc.dim() < 1:
+            raise ValueError("loc must be at least one-dimensional.")
+        if (covariance_matrix is not None) + (scale_tril is not None) + (precision_matrix is not None) != 1:
+            raise ValueError("Exactly one of covariance_matrix or precision_matrix or scale_tril may be specified.")
+
+        loc_ = loc.unsqueeze(-1)  # temporarily add dim on right
+        if scale_tril is not None:
+            if scale_tril.dim() < 2:
+                raise ValueError("scale_tril matrix must be at least two-dimensional, "
+                                 "with optional leading batch dimensions")
+            self.scale_tril, loc_ = torch.broadcast_tensors(scale_tril, loc_)
+        elif covariance_matrix is not None:
+            if covariance_matrix.dim() < 2:
+                raise ValueError("covariance_matrix must be at least two-dimensional, "
+                                 "with optional leading batch dimensions")
+            self.covariance_matrix, loc_ = torch.broadcast_tensors(covariance_matrix, loc_)
+        else:
+            if precision_matrix.dim() < 2:
+                raise ValueError("precision_matrix must be at least two-dimensional, "
+                                 "with optional leading batch dimensions")
+            self.precision_matrix, loc_ = torch.broadcast_tensors(precision_matrix, loc_)
+        self.loc = loc_[..., 0]  # drop rightmost dim
+
+        batch_shape, event_shape = self.loc.shape[:-1], self.loc.shape[-1:]
+        super(MultivariateNormal, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+        if scale_tril is not None:
+            self._unbroadcasted_scale_tril = scale_tril
+        elif covariance_matrix is not None:
+            #self._unbroadcasted_scale_tril = torch.cholesky(covariance_matrix)
+            self._unbroadcasted_scale_tril = torch.sqrt(covariance_matrix)
+        else:  # precision_matrix is not None
+            raise NotImplementedError('Only covariance_matrix or scale_tril may be specified')
+
+
 

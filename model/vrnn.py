@@ -10,6 +10,7 @@ from torch import nn
 from model.common import DBlock, PreProcess, MLP
 
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
+from model.common import DiagMultivariateNormal as MultivariateNormal
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
 
 class VRNN(nn.Module):
@@ -79,7 +80,7 @@ class VRNN(nn.Module):
                 torch.cat([self.observations_seq_embed[t], self.external_input_seq_embed[t], h], dim=-1)
             )
             z_t = normal_differential_sample(
-                torch.distributions.MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
+                MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
             )
             output, rnn_hidden_state = self.rnn(torch.cat(
                 [self.observations_seq_embed[t], self.external_input_seq_embed[t], self.process_z(z_t)], dim=-1
@@ -123,14 +124,14 @@ class VRNN(nn.Module):
                 torch.cat([self.external_input_seq_embed[t], h], dim=-1)
             )
             z_t = normal_differential_sample(
-                torch.distributions.MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
+                MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
             )
             z_t_embed = self.process_z(z_t)
             x_t_mean, x_t_logsigma = self.decoder(
                 torch.cat([z_t_embed, h], dim=-1)
             )
             x_t = normal_differential_sample(
-                torch.distributions.MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
+                MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
             )
             output, rnn_hidden_state = self.rnn(torch.cat(
                 [self.process_x(x_t), self.external_input_seq_embed[t], z_t_embed], dim=-1
@@ -178,14 +179,14 @@ class VRNN(nn.Module):
             )
 
             z_t_seq = normal_differential_sample(
-                torch.distributions.MultivariateNormal(prior_z_t_seq_mean, logsigma2cov(prior_z_t_seq_logsigma))
+                MultivariateNormal(prior_z_t_seq_mean, logsigma2cov(prior_z_t_seq_logsigma))
             )
             z_t_seq_embed = self.process_z(z_t_seq)
             x_t_seq_mean, x_t_seq_logsigma = self.decoder(
                 torch.cat([z_t_seq_embed, predicted_h], dim=-1)
             )
             x_t_seq = normal_differential_sample(
-                torch.distributions.MultivariateNormal(x_t_seq_mean, logsigma2cov(x_t_seq_logsigma))
+                MultivariateNormal(x_t_seq_mean, logsigma2cov(x_t_seq_logsigma))
             )
 
             # rnn_hidden_state 's shape : (num_layers, length*batch_size, k)
@@ -235,7 +236,7 @@ class VRNN(nn.Module):
         mean, logsigma = self.decoder(
             torch.cat([self.process_z(self.sampled_state), self.h_seq[:-1]], dim=-1)
         )
-        observations_normal_dist = torch.distributions.MultivariateNormal(
+        observations_normal_dist = MultivariateNormal(
             mean, logsigma2cov(logsigma)
         )
         if mode == 'dist':
