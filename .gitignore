@@ -121,5 +121,5 @@ ckpt/*.pth
 !/jupyter/ErrorTest.ipynb
 !/jupyter/ErrorLog.ipynb
 !/jupyter/Redraw.ipynb
-scripts/tmp/
+scripts/tmp/*
 /ckpt/
