@@ -12,7 +12,7 @@ from model.common import DBlock, PreProcess, MLP
 
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
 from model.func import normal_differential_sample, multivariate_normal_kl_loss
-
+from model.common import DiagMultivariateNormal as MultivariateNormal
 
 class SRNN(nn.Module):
     def __init__(self, input_size, state_size, observations_size, net_type='rnn', k=16, num_layers=1,
@@ -90,7 +90,7 @@ class SRNN(nn.Module):
             )[0] + z_t_mean_res
 
             z_t_minus_one = normal_differential_sample(
-                torch.distributions.MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
+                MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
             )
 
             self.state_mu.append(z_t_mean)
@@ -117,7 +117,7 @@ class SRNN(nn.Module):
             prior_z_t_mean, prior_z_t_logsigma = self.prior_gauss(
                 torch.cat([z_t_minus_one, self.d_seq[t]], dim=-1)
             )
-            z_t_dist = torch.distributions.MultivariateNormal(prior_z_t_mean, logsigma2cov(prior_z_t_logsigma))
+            z_t_dist = MultivariateNormal(prior_z_t_mean, logsigma2cov(prior_z_t_logsigma))
             z_t_minus_one = normal_differential_sample(z_t_dist)
             sampled_state.append(z_t_minus_one)
         self.sampled_state = torch.stack(sampled_state, dim=0)
@@ -169,7 +169,7 @@ class SRNN(nn.Module):
                 logsigma2cov(prior_z_t_seq_logsigma)
             )
             predicted_state_sampled = normal_differential_sample(
-                torch.distributions.MultivariateNormal(
+                MultivariateNormal(
                     prior_z_t_seq_mean, logsigma2cov(prior_z_t_seq_logsigma)
                 )
             )[:-1]
@@ -212,7 +212,7 @@ class SRNN(nn.Module):
         mean, logsigma = self.decoder(
             torch.cat([self.sampled_state, self.d_seq], dim=-1)
         )
-        observations_normal_dist = torch.distributions.MultivariateNormal(
+        observations_normal_dist = MultivariateNormal(
             mean, logsigma2cov(logsigma)
         )
         if mode == 'dist':
