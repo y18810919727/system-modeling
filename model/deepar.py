@@ -10,7 +10,7 @@ from torch import nn
 from model.common import DBlock, PreProcess, MLP
 
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
-from model.func import normal_differential_sample, multivariat_normal_kl_loss
+from model.func import normal_differential_sample, multivariate_normal_kl_loss
 
 
 class DeepAR(nn.Module):

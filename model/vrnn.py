@@ -8,7 +8,7 @@ import json
 import torch
 from torch import nn
 from model.common import DBlock, PreProcess, MLP
-
+#DiagMultivariateNormal
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
 from model.common import DiagMultivariateNormal as MultivariateNormal
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
