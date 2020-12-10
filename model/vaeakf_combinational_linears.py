@@ -11,7 +11,7 @@ from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split
 from model.func import weighted_linear, normal_differential_sample, multivariate_normal_kl_loss
 from model.dynamic.combinational_linears import CombinationalLinears
 from model.common import DBlock, PreProcess
-
+from model.common import DiagMultivariateNormal as MultivariateNormal
 
 class VAEAKFCombinedLinear(nn.Module):
     def __init__(self, input_size, state_size, observations_size, net_type='lstm', k=16, num_layers=1, L=1, R=1,
@@ -102,7 +102,7 @@ class VAEAKFCombinedLinear(nn.Module):
         self.weight_initial_hidden_state = weight_initial_hidden_state
         # region 估计每个位置的weight_hidden_state
         self.sampled_state = normal_differential_sample(
-            torch.distributions.MultivariateNormal(self.state_mu, logsigma2cov(self.state_logsigma))
+            MultivariateNormal(self.state_mu, logsigma2cov(self.state_logsigma))
         )
         # weight_initial_hidden_state 是上一轮次forward时lstm的隐状态(hn, cn)
 
@@ -151,7 +151,7 @@ class VAEAKFCombinedLinear(nn.Module):
 
         # 此处采样-1时刻的隐状态
         state = normal_differential_sample(
-            torch.distributions.MultivariateNormal(self.initial_prior_mu, logsigma2cov(self.initial_prior_logsigma))
+            MultivariateNormal(self.initial_prior_mu, logsigma2cov(self.initial_prior_logsigma))
         )
         for i in range(l):
 
@@ -240,7 +240,7 @@ class VAEAKFCombinedLinear(nn.Module):
 
         # 先从后验分布中采样，长度为 l + 1
         sampled_state_l_plus_one = normal_differential_sample(
-            torch.distributions.MultivariateNormal(q_mu, q_cov)
+            MultivariateNormal(q_mu, q_cov)
         )
 
         # 取forward_posterior时存储的weight_initial_hidden_state构建lstm的初始隐状态(hn,cn)，如果为None，从动态模型dynamic内置参数构建
@@ -412,7 +412,7 @@ class VAEAKFCombinedLinear(nn.Module):
             observations_mu, observations_cov = self.decoder(state)
             # observations_mu = torch.nn.functional.linear(state, self.estimate_H) + self.estimate_bias
             # observations_cov = logsigma2cov(self.estimate_logdelta)
-            observations_normal_dist = torch.distributions.MultivariateNormal(
+            observations_normal_dist = MultivariateNormal(
                 observations_mu, logsigma2cov(observations_cov)
             )
             return torch.sum(observations_normal_dist.log_prob(self.observations_seq))
@@ -432,7 +432,7 @@ class VAEAKFCombinedLinear(nn.Module):
         """
 
         observations_mu, observations_cov = self.decoder(self.sampled_state)
-        observations_normal_dist = torch.distributions.MultivariateNormal(
+        observations_normal_dist = MultivariateNormal(
             observations_mu, logsigma2cov(observations_cov)
         )
         if mode == 'dist':
