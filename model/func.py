@@ -63,8 +63,9 @@ def multivariate_normal_kl_loss(mu1, cov1, mu2, cov2):
     :param sigma2:
     :return:  a scalar loss
     """
-    dist1 = torch.distributions.MultivariateNormal(mu1, cov1)
-    dist2 = torch.distributions.MultivariateNormal(mu2, cov2)
+    from model.common import DiagMultivariateNormal as MultivariateNormal
+    dist1 = MultivariateNormal(mu1, cov1)
+    dist2 = MultivariateNormal(mu2, cov2)
     kl = torch.distributions.kl.kl_divergence(dist1, dist2)
     return torch.sum(kl)
 

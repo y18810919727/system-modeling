@@ -1,0 +1,7 @@
+# @package _group_
+type: west_con
+input_size: 5
+observation_size: 2
+dataset_window: 5
+dilation: 2
+target_names: ['UC', 'Pressure']

@@ -12,11 +12,12 @@ import pandas as pd
 import numpy as np
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
-from dataset import WesternDataset, CstrDataset, WindingDataset
+from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
 import traceback
 from matplotlib import pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
+
 
 
 def set_random_seed(seed):
@@ -59,8 +60,20 @@ def main_test(args, logging, ckpt_path):
         data_paths = detect_download(data_urls, base)
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
-        train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, _ = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        test_size = len(data_csvs) - train_size - val_size
         dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
+                                 args.dataset.dataset_window, dilation=args.dataset.dilation)
+        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+
+    elif args.dataset.type == 'west_con':
+        data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
+        data_csvs = [pd.read_csv(os.path.join(data_dir, file)) for file in os.listdir(data_dir)]
+
+        dataset_split = [0.6, 0.2, 0.2]
+        train_size, val_size, _ = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        test_size = len(data_csvs) - train_size - val_size
+        dataset = WesternConcentrationDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
                                  args.dataset.dataset_window, dilation=args.dataset.dilation)
         test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'cstr':

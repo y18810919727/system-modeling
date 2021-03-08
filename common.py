@@ -114,6 +114,15 @@ def detect_download(data_urls, base):
     data_paths = []
 
     def download(url, path):
+        """
+        数据存储在了阿里云oss上
+        Args:
+            url:
+            path:
+
+        Returns:
+
+        """
         import urllib
         print("Downloading file %s from %s:" % (path, url))
         try:
