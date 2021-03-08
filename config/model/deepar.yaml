@@ -2,6 +2,7 @@
 type: deepar
 filtering: yes
 net_type: rnn
+state_size: 32
 k_size: 32
 num_layers: 1
 

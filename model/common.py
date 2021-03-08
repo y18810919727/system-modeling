@@ -66,8 +66,12 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
+
 from torch.distributions.multivariate_normal import MultivariateNormal, _precision_to_scale_tril, _batch_mahalanobis
 
+from torch.distributions import constraints
+from torch.distributions.distribution import Distribution
+from torch.distributions.utils import _standard_normal, lazy_property
 
 class DiagMultivariateNormal(torch.distributions.multivariate_normal.MultivariateNormal):
     def __init__(self, loc, covariance_matrix=None, precision_matrix=None, scale_tril=None, validate_args=None):

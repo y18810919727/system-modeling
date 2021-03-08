@@ -206,3 +206,83 @@ class WindingDataset(Dataset):
         #return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
         return data_in, data_out
 
+class WesternConcentrationDataset(Dataset):
+    def __init__(self,df_list, length=1000, step=5, dilation=2):
+        """
+
+        Args:
+            df_list:
+            length:
+            step: 数据segment切割窗口的移动步长
+            dilation: 浓密机数据采样频率(1 min)过高，dilation表示数据稀释间距
+        """
+        if not isinstance(df_list, list):
+            df_list = [df_list]
+        df_split_all = []
+        begin_pos_pair = []
+
+        #每个column对应的数据含义 ['c_in','c_out', 'v_out', 'v_in', 'pressure']
+        self.used_columns = ['4','5','7','11','14','16','17']
+        self.length = length
+        self.dilation = dilation
+
+        for df in df_list:
+            df_split_all = df_split_all + self.split_df(df[self.used_columns])
+        for i, df in enumerate(df_split_all):
+            for j in range(0, df.shape[0]-length * dilation + 1, step):
+                begin_pos_pair.append((i,j))
+        self.begin_pos_pair = begin_pos_pair
+        self.df_split_all = df_split_all
+        self.df_split_all = self.normalize(self.df_split_all)
+
+    def normalize(self, df_all_list):
+        df_all = df_all_list[0].append(df_all_list[1:], ignore_index=True)
+        mean = df_all.mean()
+        std = df_all.std()
+        return [(df-mean)/std for df in df_all_list]
+
+    def split_df(self, df):
+        """
+        将存在空值的位置split开
+        Args:
+            df:
+        Returns: list -> [df1,df2,...]
+        """
+        df_list = []
+        split_indexes = list(
+            df[df.isnull().T.any()].index
+        )
+        split_indexes = [-1]+split_indexes + [df.shape[0]]
+        for i in range(len(split_indexes)-1):
+            if split_indexes[i+1]-split_indexes[i]-1<self.length:
+                continue
+
+            new_df = df.iloc[split_indexes[i]+1:split_indexes[i+1]]
+            assert new_df.isnull().sum().sum() == 0
+            df_list.append(new_df)
+        return df_list
+
+    def __len__(self):
+        return len(self.begin_pos_pair)
+
+    def __getitem__(self, item):
+        df_index, pos = self.begin_pos_pair[item]
+        # data_array = np.array(self.df_split_all[df_index].iloc[pos:pos+self.length*self.dilation], dtype=np.float32)
+        # data_array = data_array[np.arange(self.length) * self.dilation]
+        # c_in = data_array[:, 0]
+        # c_out = data_array[:, 1]
+
+        # data_in = np.array(data_array[['4','5','7','14','16']], dtype=np.float32)
+        # data_out = np.array(data_array[['11', '17']], dtype=np.float32)
+
+        data_df = self.df_split_all[df_index].iloc[pos:pos+self.length*self.dilation]
+
+        def choose_and_dilation(df, length, dilation, indices):
+            return np.array(
+                df[indices], dtype=np.float32
+            )[np.arange(length)*dilation]
+        data_in = choose_and_dilation(data_df, self.length, self.dilation, ['4', '5', '7', '14', '16'])
+        data_out = choose_and_dilation(data_df, self.length, self.dilation, ['11', '17'])
+
+        #return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+        return data_in, data_out
