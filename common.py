@@ -7,6 +7,7 @@ import time
 import json
 
 import torch
+import logging
 
 
 class SimpleLogger(object):
@@ -97,6 +98,32 @@ def inverse_softplus(x, threshold=20):
 
 def logsigma2cov(logsigma):
     return torch.diag_embed(softplus(logsigma)**2)
+
+
+def get_logger(logpath, filepath, package_files=[],
+               displaying=True, saving=True, debug=False):
+    logger = logging.getLogger()
+    if debug:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    logger.setLevel(level)
+    if saving:
+        info_file_handler = logging.FileHandler(logpath, mode='w')
+        info_file_handler.setLevel(level)
+        logger.addHandler(info_file_handler)
+    if displaying:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        logger.addHandler(console_handler)
+    logger.info(filepath)
+
+    for f in package_files:
+        logger.info(f)
+        with open(f, 'r') as package_f:
+            logger.info(package_f.read())
+
+    return logger
 
 
 def cov2logsigma(cov):
