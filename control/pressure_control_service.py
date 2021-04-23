@@ -41,6 +41,12 @@ def get_basic_info():
     }
 
 
+@app.route('/test', methods=['GET'])
+def test_request():
+    if request.method == 'GET':
+        return jsonify('Received!')
+
+
 @app.route('/cem-planning', methods=['POST'])
 def cem_planning():
     if request.method == 'POST':
@@ -93,7 +99,6 @@ def update():
                 memory_state[k] = torch.Tensor(
                     np.array(v if isinstance(v, list) else json.loads(v), dtype=np.float32),
                 ).to(controller_info['device'])
-            memory_state = dict_to_Tensor(memory_state, device=controller_info['device'])
         else:
             memory_state = None
 
@@ -129,11 +134,11 @@ def update():
 
 def control_service_start(args):
 
-    import sys
-    sys.stderr = open('control/logs/service_log.out', 'w')
+    # import sys
+    # sys.stderr = open('control/logs/service_log.out', 'w')
 
     # torch.multiprocessing.set_start_method('spawn')
-    device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu")
     model = torch.load(args.planning)
     model = model.to(device)
     model.eval()
@@ -155,7 +160,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser('Pressure Control Test')
     parser.add_argument('--planning',  type=str, default='control/model/test.pkl', help="ckpt path of planning model.")
-    parser.add_argument('--cuda',  type=int, default=0, help="GPU ID")
+    parser.add_argument('--cuda',  type=int, default=-1, help="GPU ID, -1 for CPU")
     parser.add_argument('--length',  type=int, default=50, help="The length of optimized sequence for planning")
     parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
     parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
