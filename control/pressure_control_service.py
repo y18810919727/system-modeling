@@ -11,6 +11,9 @@ from flask import Flask
 import getopt
 from flask import request
 from flask import Flask, jsonify, request
+import sys
+sys.path.append('..')
+sys.path.append(os.getcwd())
 from control.cem_planning import CEMPlanning
 from control.scale import Scale
 import time
@@ -83,7 +86,7 @@ def update():
     if request.method == 'POST':
 
         global controller_info
-        if 'memory_state' is request.form.keys() and request.form['memory_state'] is not None:
+        if 'memory_state' in request.form.keys() and request.form['memory_state'] is not None:
             memory_state = request.form['memory_state']
             memory_state = json.loads(memory_state)
             for k, v in memory_state.items():
@@ -152,12 +155,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser('Pressure Control Test')
     parser.add_argument('--planning',  type=str, default='control/model/test.pkl', help="ckpt path of planning model.")
-    parser.add_argument('-cuda',  type=int, default=3, help="GPU ID")
+    parser.add_argument('--cuda',  type=int, default=0, help="GPU ID")
     parser.add_argument('--length',  type=int, default=50, help="The length of optimized sequence for planning")
     parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
     parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
     parser.add_argument('--max_iters',  type=int, default=50, help="The number of iters in CEM planning")
-    parser.add_argument('--port',  type=int, default=6006, help="The number of iters in CEM planning")
+    parser.add_argument('--port',  type=int, default=6008, help="The number of iters in CEM planning")
     parser.add_argument('--debug', action='store_true', default=False)
     args = parser.parse_args()
     control_service_start(args)
