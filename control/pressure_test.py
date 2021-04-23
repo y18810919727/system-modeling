@@ -27,7 +27,7 @@ parser.add_argument('--length',  type=int, default=50, help="The length of optim
 parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
 parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
 parser.add_argument('-r', '--random_seed',  type=int, default=1, help="Random seed in experiment")
-parser.add_argument('--port',  type=int, default=6006, help="The number of iters in CEM planning")
+parser.add_argument('--port',  type=int, default=6008, help="The number of iters in CEM planning")
 parser.add_argument('--debug', action='store_true', default=False)
 config = parser.parse_args()
 
