@@ -50,3 +50,22 @@ CUDA_VISIBLE_DEVICES=3 python model_test.py 'save_dir=ckpt/west/vrnn/vrnn_model.
 - ```plt_cnt```: 决定运行```model_test.py```时会画几个图在figs中
 ## hydra  
 参考资料: https://hydra.cc/
+
+
+## Docker build
+
+1. 构建镜像
+```bash
+docker build -t test/pressure_control:v1 . 
+```
+2. 启动容器
+```bash
+docker run --rm -it test/pressure_control:v1 --cuda 0
+```
+cuda 用于指定使用的GPU ID，不加参数默认为2号gpu
+
+Dockerfile 启动命令:
+```bash
+ENTRYPOINT ["python", "control/pressure_control_service.py"]
+CMD ["--cuda", "2"]
+```
