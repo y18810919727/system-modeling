@@ -60,12 +60,13 @@ docker build -t test/pressure_control:v1 .
 ```
 2. 启动容器
 ```bash
-docker run --rm -it test/pressure_control:v1 --cuda 0
+docker run --rm --gpus all -it -p 6008:6008 test/pressure_control:v1 --cuda 0
 ```
-cuda 用于指定使用的GPU ID，不加参数默认为2号gpu
+参数解释:
+- cuda: 使用的GPU ID ，不加参数默认为2号gpu
 
 Dockerfile 启动命令:
 ```bash
-ENTRYPOINT ["python", "control/pressure_control_service.py"]
+ENTRYPOINT ["sh", "-c", "python control/pressure_control_service.py"]
 CMD ["--cuda", "2"]
 ```
