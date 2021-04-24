@@ -149,6 +149,8 @@ def control_service_start(args):
     controller_info['model'] = model
     controller_info['args'] = args
     controller_info['scale'] = Scale(mean=np.zeros(9), std=np.ones(9))  # 此处需要利用数据集进行估计，应保持和训练时的归一化一致
+    from pprint import pprint
+    pprint(controller_info)
     app.run(
         host='0.0.0.0',
         port=args.port,
@@ -160,7 +162,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser('Pressure Control Test')
     parser.add_argument('--planning',  type=str, default='control/model/test.pkl', help="ckpt path of planning model.")
-    parser.add_argument('--cuda',  type=int, default=-1, help="GPU ID, -1 for CPU")
+    parser.add_argument('--cuda',  type=int, default=0, help="GPU ID, -1 for CPU")
     parser.add_argument('--length',  type=int, default=50, help="The length of optimized sequence for planning")
     parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
     parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
