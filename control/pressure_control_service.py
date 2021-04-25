@@ -107,15 +107,16 @@ def update():
         begin_time = time.perf_counter()
 
         monitoring_data_scale = controller_info['scale'].scale_array(np.array(new_monitoring_data))  # 数据归一化
-        v_out = monitoring_data_scale[-1]
-        observation = monitoring_data_scale[:-1]
+        v_out = monitoring_data_scale[:, -1]
+        observation = monitoring_data_scale[:, :-1]
+        seq_length = observation.shape[0]
 
         # region TODO: 目前的模型是8输入，1输出, 现在为了测试先把最后一个维度当作输出，未来需要替换为下面两行
         #
         # external_input = torch.Tensor([v_out]).to(controller_info['device']).reshape(1, 1, -1)
         # observations_seq = torch.Tensor(observation).to(controller_info['device']).reshape(1, 1, -1)
-        external_input = torch.Tensor(observation).to(controller_info['device']).reshape(1, 1, -1)
-        observations_seq = torch.Tensor([v_out]).to(controller_info['device']).reshape(1, 1, -1)
+        external_input = torch.Tensor(observation).to(controller_info['device']).reshape(seq_length, 1, -1)
+        observations_seq = torch.Tensor([v_out]).to(controller_info['device']).reshape(seq_length, 1, -1)
         # endregion
 
         _, _, new_memory_state = controller_info['model'].forward_posterior(
