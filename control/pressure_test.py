@@ -71,7 +71,7 @@ def main(args):
     resp = requests.post(
         "http://{}:{}/update".format(args.ip, str(args.port)),
         data={
-            'monitoring_data': json.dumps(get_ob_list(simulated_thickener.get_current_state())),
+            'monitoring_data': json.dumps([get_ob_list(simulated_thickener.get_current_state())]),
             'memory_state': None
         })
     memory_state_json = resp.json()['memory_state']
@@ -91,7 +91,7 @@ def main(args):
 
         # region 获得浓密机最新状态，并更新memory-state
         resp = requests.post("http://{}:{}/update".format(args.ip, str(args.port)), data={
-            'monitoring_data': json.dumps(get_ob_list(simulated_thickener.get_current_state())),
+            'monitoring_data': json.dumps([get_ob_list(simulated_thickener.get_current_state())]),
             'memory_state': memory_state_json,
         })
         memory_state_json = resp.json()['memory_state']
