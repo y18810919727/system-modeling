@@ -7,7 +7,6 @@ import json
 import torch
 import time
 
-
 import pandas as pd
 import numpy as np
 from dataset import FakeDataset
@@ -19,10 +18,8 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 
-
 def set_random_seed(seed):
-
-    rand_seed = np.random.randint(0,100000) if seed is None else seed
+    rand_seed = np.random.randint(0, 100000) if seed is None else seed
     print('random seed = {}'.format(rand_seed))
     np.random.seed(rand_seed)
     torch.manual_seed(rand_seed)
@@ -39,7 +36,7 @@ def main_test(args, logging, ckpt_path):
     model = generate_model(args)
     ckpt = torch.load(
         os.path.join(
-             ckpt_path, 'best.pth'
+            ckpt_path, 'best.pth'
         )
     )
     model.load_state_dict(ckpt['model'])
@@ -60,7 +57,7 @@ def main_test(args, logging, ckpt_path):
         data_paths = detect_download(data_urls, base)
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
-        train_size, val_size, _ = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, _ = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         test_size = len(data_csvs) - train_size - val_size
         dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
                                  args.dataset.dataset_window, dilation=args.dataset.dilation)
@@ -71,10 +68,10 @@ def main_test(args, logging, ckpt_path):
         data_csvs = [pd.read_csv(os.path.join(data_dir, file)) for file in os.listdir(data_dir)]
 
         dataset_split = [0.6, 0.2, 0.2]
-        train_size, val_size, _ = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, _ = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         test_size = len(data_csvs) - train_size - val_size
         dataset = WesternConcentrationDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
-                                 args.dataset.dataset_window, dilation=args.dataset.dilation)
+                                              args.dataset.dataset_window, dilation=args.dataset.dilation)
         test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
@@ -100,7 +97,7 @@ def main_test(args, logging, ckpt_path):
     def single_data_generator(acc_info):
         for i, data in enumerate(test_loader):
 
-            external_input, observation =data
+            external_input, observation = data
             external_input = external_input.permute(1, 0, 2)
             observation = observation.permute(1, 0, 2)
 
@@ -125,12 +122,12 @@ def main_test(args, logging, ckpt_path):
                 external_input[:prefix_length], observation[:prefix_length]
             )
             pred_observations_dist, pred_observations_sample, memory_state = model.forward_prediction(
-                external_input[prefix_length:],  max_prob=True, memory_state=memory_state
+                external_input[prefix_length:], max_prob=True, memory_state=memory_state
             )
             if args.model.type == 'vaecl':
                 weight_map = memory_state['weight_map']
             else:
-                weight_map = torch.zeros((2, 1, 2)) # minimal shaoe
+                weight_map = torch.zeros((2, 1, 2))  # minimal shape
             # endregion
 
             pred_observation_low, pred_observation_high = normal_interval(pred_observations_dist, 2)
@@ -154,35 +151,36 @@ def main_test(args, logging, ckpt_path):
 
             # 统计参数5: 真实序列在预测分布上的似然
 
-
             target_name = args.dataset.target_names
-            ob_pearson_info = ' '.join(['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
+            ob_pearson_info = ' '.join(
+                ['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
             pred_pearson_info = ' '.join(['pred_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(
                 prediction_pearsonr, args.dataset.target_names)])
 
             log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_pearson_info + ' pred_rrse={:.4f} ' + pred_pearson_info + ' time={:.4f}'
             logging(log_str.format(i, float(loss),
-                                         float(rrse),
-                                         prediction_rrse,
-                                         end_time - beg_time))
+                                   float(rrse),
+                                   prediction_rrse,
+                                   end_time - beg_time))
 
             acc_info += np.array([
                 float(loss), float(rrse), *ob_pear, prediction_rrse, *prediction_pearsonr, end_time - beg_time
             ], dtype=np.float32)
 
             for i in range(external_input.size()[1]):
-                yield tuple([x[:,i:i+1, :]for x in [observation, decode_observations,
-                                                    decode_observation_low, decode_observation_high,
-                                                    pred_observation_low, pred_observation_high,
-                                                    pred_observations_sample]]+[weight_map])
+                yield tuple([x[:, i:i + 1, :] for x in [observation, decode_observations,
+                                                        decode_observation_low, decode_observation_high,
+                                                        pred_observation_low, pred_observation_high,
+                                                        pred_observations_sample]] + [weight_map])
 
     for i, result in enumerate(single_data_generator(acc_info)):
-        if i % int(len(dataset)//args.test.plt_cnt) == 0:
+        if i % int(len(dataset) // args.test.plt_cnt) == 0:
 
             # 遍历每一个被预测指标
             for _ in range(len(args.dataset.target_names)):
                 observation, decode_observations, decode_observation_low, decode_observation_high, \
-                    pred_observation_low, pred_observation_high, pred_observations_sample = [x[:, :, _]for x in result[:-1]]
+                pred_observation_low, pred_observation_high, pred_observations_sample = [x[:, :, _] for x in
+                                                                                         result[:-1]]
                 weight_map = result[-1]
                 target_name = args.dataset.target_names[_]
                 # region 开始画图
@@ -190,8 +188,9 @@ def main_test(args, logging, ckpt_path):
                 ##################图一:隐变量区间展示###########################
 
                 plt.subplot(221)
-                text_list = ['{}={:.4f}'.format(name, value/len(test_loader)) for name, value in zip(acc_name, acc_info)]
-                for pos, text in zip(np.linspace(0, 1, len(text_list)+1)[:-1], text_list):
+                text_list = ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in
+                             zip(acc_name, acc_info)]
+                for pos, text in zip(np.linspace(0, 1, len(text_list) + 1)[:-1], text_list):
                     plt.text(0.2, pos, text)
                 # plt.plot(observation, label='observation')
                 # plt.plot(estimate_state, label='estimate')
@@ -207,7 +206,8 @@ def main_test(args, logging, ckpt_path):
                 estimate_observation_low = decode_observation_low.cpu().squeeze().detach()
                 estimate_observation_high = decode_observation_high.cpu().squeeze().detach()
                 plt.plot(range(len(estimate_observation_low)), observation, label=target_name)
-                plt.fill_between(range(len(estimate_observation_low)), estimate_observation_low, estimate_observation_high,
+                plt.fill_between(range(len(estimate_observation_low)), estimate_observation_low,
+                                 estimate_observation_high,
                                  facecolor='green', alpha=0.2, label='95%')
                 plt.legend()
 
@@ -215,10 +215,11 @@ def main_test(args, logging, ckpt_path):
                 plt.subplot(223)
                 prefix_length = args.history_length
                 plt.plot(range(prefix_length), observation[:prefix_length], label='history')
-                plt.plot(range(prefix_length-1, observation.size()[0]), observation[prefix_length-1:], label='real')
-                plt.plot(range(prefix_length-1, observation.size()[0]),
-                         np.concatenate([[float(observation[prefix_length-1])],
-                                         pred_observations_sample.detach().squeeze().cpu().numpy()]), label='prediction')
+                plt.plot(range(prefix_length - 1, observation.size()[0]), observation[prefix_length - 1:], label='real')
+                plt.plot(range(prefix_length - 1, observation.size()[0]),
+                         np.concatenate([[float(observation[prefix_length - 1])],
+                                         pred_observations_sample.detach().squeeze().cpu().numpy()]),
+                         label='prediction')
 
                 plt.fill_between(range(prefix_length, observation.size()[0]),
                                  pred_observation_low.detach().squeeze().cpu().numpy(),
@@ -229,7 +230,7 @@ def main_test(args, logging, ckpt_path):
 
                 ##################图四:weight map 热力图###########################
                 plt.subplot(224)
-                weight = weight_map.mean(dim=1) # 沿着batch维度求平均
+                weight = weight_map.mean(dim=1)  # 沿着batch维度求平均
                 weight = weight.transpose(1, 0)
                 weight = weight.detach().cpu().numpy()
                 # cs = plt.contourf(weight, cmap=plt.cm.hot)
@@ -242,13 +243,13 @@ def main_test(args, logging, ckpt_path):
                 # endregion 画图结束
                 plt.savefig(
                     os.path.join(
-                        figs_path, str(i) + '_' + str(_)+'.png'
+                        figs_path, str(i) + '_' + str(_) + '.png'
                     )
                 )
                 plt.close()
 
     logging(' '.join(
-        ['{}={:.4f}'.format(name, value/len(test_loader)) for name, value in zip(acc_name, acc_info)]
+        ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in zip(acc_name, acc_info)]
     ))
 
     def is_parameters_printed(parameter):
