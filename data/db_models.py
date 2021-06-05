@@ -1,5 +1,3 @@
-from .mymodel import MyModel
-# Create your models here.
 import mongoengine
 
 app_name = 'nfcadb'
@@ -121,6 +119,7 @@ class WarningLog(mongoengine.Document):
         'ordering': ['-time']
     }
 
+
 class StopeManage(mongoengine.Document):
     """采场管理表
 
@@ -186,6 +185,7 @@ class TunnelManage(mongoengine.Document):
     origin_model = mongoengine.FileField()
     simplified_model = mongoengine.FileField()
 
+
 class TunnelManage(mongoengine.Document):
     """
     巷道管理表
@@ -207,19 +207,6 @@ class TunnelManage(mongoengine.Document):
     is_deleted = mongoengine.BooleanField(default=False)
     origin_model = mongoengine.FileField()
     simplified_model = mongoengine.FileField()
-
-class DeviceMode(MyModel, mongoengine.Document):
-    """设备模式表"""
-
-    user_id = mongoengine.IntField(max_value=1024)
-    username = mongoengine.StringField(max_length=16)
-    mode_1 = mongoengine.IntField(max_value=4)
-    stope_1 = mongoengine.IntField()
-    mode_2 = mongoengine.IntField(max_value=4)
-    stope_2 = mongoengine.IntField()
-    time_start = mongoengine.DateTimeField()
-    time_end = mongoengine.DateTimeField()
-    active_state = mongoengine.BooleanField(defult=True)
 
 
 class ConfigParm(mongoengine.Document):
@@ -354,7 +341,7 @@ class BackfillRecord(mongoengine.Document):
     is_deleted = mongoengine.BooleanField(defult=False)
 
 
-class MissionOperation(MyModel, mongoengine.Document):
+class MissionOperation(mongoengine.Document):
     """任务操作表（原设备模式表）
 
     user_id: 当前用户id
