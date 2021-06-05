@@ -42,6 +42,9 @@ class SoutheastOreDataset(Dataset):
         self.inter_sep = 10
         self.inter_method = 'linear'
 
+        # 更新二号浓密机的fill_round
+        self.fill_id = 0
+
         mongodb_connect()
         if not os.path.exists('data/south_con') or not os.listdir('data/south_con'):
             self.gene_data(1, time_range)
@@ -50,10 +53,6 @@ class SoutheastOreDataset(Dataset):
             # TODO: 长期计划：add config文件，注明Dataset时间段、是否被插值
             self.read_csv()
 
-        # merge both thickener data
-        self.merge_data = {name: self.data[1][inx].append(self.data[2][inx])
-                           for inx, name in enumerate(self.point['name'])}
-    #   TODO: 更新二号浓密机的fill_round
 
     def get_filling_range(self, key, time_range=None):
         """
@@ -102,10 +101,11 @@ class SoutheastOreDataset(Dataset):
 
         return c_f_range
 
-    def zScoreNormalization(self, df):
-        mean = df['value'].mean()
-        std = df['value'].std()
-        df['value'] = df['value'].apply(lambda x: (x - mean) / std)
+    def zScoreNormalization(self, th_id, df):
+        for point_id in self.point[th_id]:
+            mean = df[point_id].mean()
+            std = df[point_id].std()
+            df[point_id] = df[point_id].apply(lambda x: (x - mean) / std)
         return df
 
     def get_time_end(self, th_id, time_range):
@@ -115,13 +115,18 @@ class SoutheastOreDataset(Dataset):
                 GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).filter(point_id=point_id)[0].time)
         return min(time_list)
 
-    def save_csv(self, th_id, point_id, point_df):
+    def get_time_strat(self, th_id, time_range):
+        time_list = []
+        for point_id in self.point[th_id]:
+            time_list.append(
+                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).filter(point_id=point_id).order_by("time")[0].time)
+        return max(time_list)
+
+    def save_csv(self, th_id,  point_df, time):
         round_count = int(max(point_df['fill_round'])) + 1
         path = './data/south_con/'
-        file_name = "{key}-{name}-{round_count}-{data_count}.csv". \
+        file_name = "{key}-{round_count}-{data_count}.csv". \
             format(key=th_id,
-                   name=self.point["name"][
-                       self.point[th_id].index(point_id)],
                    round_count=round_count,
                    data_count=point_df.shape[0])
         if not os.path.exists(path):
@@ -138,25 +143,31 @@ class SoutheastOreDataset(Dataset):
     def gene_data(self, th_id, time_range=None):
         time_list = self.get_filling_range(th_id, time_range)
         print("{count}个时间段".format(count=len(time_list)))
-        for point_id in self.point[th_id]:
-            point_df = pd.DataFrame()
-            for inx, t in enumerate(time_list):
+        all_df = pd.DataFrame()
+        for inx, t in enumerate(time_list):
+            df_list = []
+            for point_id in self.point[th_id]:
+                start_time = self.get_time_strat(th_id, t)
                 end_time = self.get_time_end(th_id, t)
                 df_data = queryset2df(
                     GmsMonitor.objects(
-                        time__gte=t[0], time__lt=end_time).filter(point_id=point_id).order_by("time"))
-                df_data['fill_round'] = inx
-
+                        time__gte=start_time, time__lt=end_time).filter(point_id=point_id).order_by("time"))
                 # interpolate
-                # TODO: reshample是Series类内的成员函数，需要以时间戳为索引，dataframe会报错
-                df_data['value'] = df_data['value'].resample(
-                    str(self.inter_sep) + 'S').interpolate(self.inter_method)
+                df_data = df_data.set_index("time")
+                df_data = df_data.resample(
+                    str(self.inter_sep) + 'S').interpolate(self.inter_method, limit_direction='both')
+                df_data = df_data.reset_index().rename(columns={'value': point_id})
+                df_list.append(df_data)
 
-                point_df = point_df.append(df_data, ignore_index=True)
+            df_merge = df_list[0]
+            for i in range(len(df_list)-1):
+                df_merge = df_merge.merge(df_list[i+1], on='time')
+            df_merge['fill_round'] = inx + self.fill_id
+            all_df = all_df.append(df_merge)
 
-            self.zScoreNormalization(point_df)
-            self.data[th_id].append(point_df)
-            self.save_csv(th_id, point_id, point_df)
+        all_df = self.zScoreNormalization(th_id, all_df)
+        self.save_csv(th_id, all_df, time_range)
+        self.fill_id = inx + 1
 
     def __getitem__(self, item):
         pass
@@ -166,5 +177,5 @@ class SoutheastOreDataset(Dataset):
 
 
 if __name__ == '__main__':
-    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 6, 1, 0, 0, 0))
+    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 4, 2, 0, 0, 0))
     dataset = SoutheastOreDataset(test_range)
