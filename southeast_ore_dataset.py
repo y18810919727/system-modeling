@@ -2,8 +2,10 @@ import mongoengine
 import datetime
 from data.db_models import GmsMonitor
 import pandas as pd
+import numpy as np
 import os
 from torch.utils.data import Dataset
+import copy
 
 
 def mongodb_connect():
@@ -28,7 +30,7 @@ class SoutheastOreDataset(Dataset):
     东南矿体数据集
     """
 
-    def __init__(self, time_range=None):
+    def __init__(self, data_dir, step_time, time_range=None):
         # 进料浓度、出料浓度、进料流量、底流流量、泥层压力
         self.point = {
             1: [5, 7, 11, 17, 67],
@@ -36,23 +38,44 @@ class SoutheastOreDataset(Dataset):
             "name": ["feed_c", "out_c", "feed_f", "out_f", "pressure"]
         }
 
-        self.data = {1: [], 2: []}
+        self.raw_data = {1: [], 2: []}
+        self.data_dir = os.path.join(data_dir, 'data/south_con')
 
         # interpolation config
         self.inter_sep = 10
         self.inter_method = 'linear'
 
         # 更新二号浓密机的fill_round
-        self.fill_id = 0
+        self.already_filled_round = 0
+        # Network in/out config
+        self.in_columns = ["out_c", "out_f", "pressure"]
+        self.out_column = "out_c"
+        self.in_length = int(60 / self.inter_sep) * step_time[0]  # 30min
+        self.out_length = int(60 / self.inter_sep) * step_time[1]  # 10min
+        self.window_step = int(60 / self.inter_sep) * step_time[2]  # 5min
 
         mongodb_connect()
-        if not os.path.exists('data/south_con') or not os.listdir('data/south_con'):
+        if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             self.gene_data(1, time_range)
             self.gene_data(2, time_range)
         else:
-            # TODO: 长期计划：add config文件，注明Dataset时间段、是否被插值
+            # TODO 长期计划：add config文件，注明Dataset时间段、是否被插值
             self.read_csv()
 
+        # merge both thickeners data
+        self.data = pd.concat(self.raw_data, ignore_index=True)
+
+        round_split = [0]
+        fill_round_list = list(self.data['fill_round'])
+        for i in range(1, len(fill_round_list)):
+            if fill_round_list[i - 1] != fill_round_list[i]:
+                round_split.append(i)
+
+        self.split_pos = []
+        for i in range(1, len(round_split)):
+            this_fill_length = round_split[i] - round_split[i - 1]
+            for j in range(self.in_length, this_fill_length - self.out_length, self.window_step):
+                self.split_pos.append(j)
 
     def get_filling_range(self, key, time_range=None):
         """
@@ -86,7 +109,8 @@ class SoutheastOreDataset(Dataset):
         for t in c_range:
             if (t[1] - t[0]).seconds > 3600:
                 data_f = list(
-                    GmsMonitor.objects(time__gte=t[0], time__lt=t[1]).filter(point_id=self.point[key][3]).filter(
+                    GmsMonitor.objects(time__gte=t[0], time__lt=t[1]).only(
+                        'point_id', 'time', 'Monitoring_value').filter(point_id=self.point[key][3]).filter(
                         Monitoring_value__gte=5).order_by("time"))
                 f_count = len(data_f)
                 start_time = t[0]
@@ -97,7 +121,7 @@ class SoutheastOreDataset(Dataset):
                         start_time = data_f[i + 1].time
                 c_f_range.append((start_time, t[1]))
 
-            c_f_range = list(filter(lambda t: (t[1] - t[0]).seconds > 3600, c_f_range))
+        c_f_range = list(filter(lambda t: (t[1] - t[0]).seconds > 3600, c_f_range))
 
         return c_f_range
 
@@ -112,19 +136,22 @@ class SoutheastOreDataset(Dataset):
         time_list = []
         for point_id in self.point[th_id]:
             time_list.append(
-                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).filter(point_id=point_id)[0].time)
+                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).only(
+                    'point_id', 'time', 'Monitoring_value').filter(point_id=point_id).first().time)
         return min(time_list)
 
-    def get_time_strat(self, th_id, time_range):
+    def get_time_start(self, th_id, time_range):
         time_list = []
         for point_id in self.point[th_id]:
             time_list.append(
-                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).filter(point_id=point_id).order_by("time")[0].time)
+                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).only(
+                    'point_id', 'time', 'Monitoring_value').filter(point_id=point_id).order_by(
+                    "time").first().time)
         return max(time_list)
 
-    def save_csv(self, th_id,  point_df, time):
+    def save_csv(self, th_id, point_df, time):
         round_count = int(max(point_df['fill_round'])) + 1
-        path = './data/south_con/'
+        path = self.data_dir
         file_name = "{key}-{round_count}-{data_count}.csv". \
             format(key=th_id,
                    round_count=round_count,
@@ -134,11 +161,10 @@ class SoutheastOreDataset(Dataset):
         point_df.to_csv(path + file_name)
 
     def read_csv(self):
-        # TODO:更新csv格式
-        for filename in os.listdir('data/south_con'):
-            th_id, name, round_count, data_count = filename[:-4].split('-')
-            self.data[th_id] = [0] * len(self.point['name'])
-            self.data[th_id][self.point[th_id][self.point['name'].index(name)]] = pd.read_csv(filename)
+        for filename in os.listdir(self.data_dir):
+            th_id, round_count, data_count = filename[:-4].split('-')
+            self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename))
+            print(f"已读取浓密机{th_id}的{round_count}段数据，共计{data_count}条")
 
     def gene_data(self, th_id, time_range=None):
         time_list = self.get_filling_range(th_id, time_range)
@@ -151,31 +177,64 @@ class SoutheastOreDataset(Dataset):
                 end_time = self.get_time_end(th_id, t)
                 df_data = queryset2df(
                     GmsMonitor.objects(
-                        time__gte=start_time, time__lt=end_time).filter(point_id=point_id).order_by("time"))
+                        time__gte=start_time, time__lt=end_time).only(
+                        'point_id', 'time', 'Monitoring_value').filter(
+                        point_id=point_id).order_by("time"))
                 # interpolate
                 df_data = df_data.set_index("time")
+                df_data.sort_index(ascending=True)
+                df_data = df_data[~df_data.index.duplicated()]
                 df_data = df_data.resample(
                     str(self.inter_sep) + 'S').interpolate(self.inter_method, limit_direction='both')
                 df_data = df_data.reset_index().rename(columns={'value': point_id})
                 df_list.append(df_data)
 
             df_merge = df_list[0]
-            for i in range(len(df_list)-1):
-                df_merge = df_merge.merge(df_list[i+1], on='time')
-            df_merge['fill_round'] = inx + self.fill_id
+            for i in range(len(df_list) - 1):
+                df_merge = df_merge.merge(df_list[i + 1], on='time')
+            df_merge['fill_round'] = inx + self.already_filled_round
             all_df = all_df.append(df_merge)
 
         all_df = self.zScoreNormalization(th_id, all_df)
+        all_df.rename(columns={self.point[th_id][i]: self.point['name'][i] for i in range(len(self.point['name']))},
+                      inplace=True)
+        self.raw_data[th_id] = all_df
         self.save_csv(th_id, all_df, time_range)
-        self.fill_id = inx + 1
+        self.already_filled_round = len(time_list)
 
     def __getitem__(self, item):
-        pass
+        item_in = np.array(self.data[self.split_pos[item] - self.in_length:self.split_pos[item]][self.in_columns],
+                           dtype=np.float32)
+        item_out = np.array([self.data[self.split_pos[item]:self.split_pos[item] + self.out_length][self.out_column]],
+                            dtype=np.float32).T
+        return item_in, item_out
 
     def __len__(self):
-        pass
+        return len(self.split_pos)
+
+    def get_part_dataset(self, start, end):
+        transcript = copy.deepcopy(self)
+        transcript.split_pos = transcript.split_pos[int(len(self.split_pos) * start):int(len(self.split_pos) * end)]
+        return transcript
+
+    def get_split_dataset(self, dataset_split: list):
+        """
+
+        Args:
+            dataset_split: train:test:valid eg. [0.6,0.2,0.2]
+
+        Returns:
+            Tuple(train_set,test_set,valid_set)
+        """
+        dataset_split = [sum(dataset_split[0:i]) for i in range(1, len(dataset_split) + 1)]
+        # eg.[0.6,0.8,1]
+        assert dataset_split[2] == 1
+        return (self.get_part_dataset(0, dataset_split[0]),
+                self.get_part_dataset(dataset_split[0], dataset_split[1]),
+                self.get_part_dataset(dataset_split[1], dataset_split[2])
+                )
 
 
 if __name__ == '__main__':
     test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 4, 2, 0, 0, 0))
-    dataset = SoutheastOreDataset(test_range)
+    dataset = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range)

@@ -17,6 +17,8 @@ from matplotlib import pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from southeast_ore_dataset import SoutheastOreDataset
+
 
 def set_random_seed(seed):
     rand_seed = np.random.randint(0, 100000) if seed is None else seed
@@ -83,6 +85,14 @@ def main_test(args, logging, ckpt_path):
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
         test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+    elif args.dataset.type == 'southeast':
+        dataset_split = [0.6, 0.2, 0.2]
+        _, _, dataset = SoutheastOreDataset(
+            data_dir=hydra.utils.get_original_cwd(),
+            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step]
+        ).get_split_dataset(dataset_split)
+        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+
     else:
         raise NotImplementedError
 

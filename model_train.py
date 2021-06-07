@@ -10,9 +10,10 @@ import time
 import shutil
 import sys
 
-
 import pandas
 import pandas as pd
+
+from southeast_ore_dataset import SoutheastOreDataset
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
 from torch.utils.data import DataLoader
 import hydra
@@ -24,8 +25,7 @@ from common import detect_download
 
 
 def set_random_seed(seed):
-
-    rand_seed = np.random.randint(0,100000) if seed is None else seed
+    rand_seed = np.random.randint(0, 100000) if seed is None else seed
     print('random seed = {}'.format(rand_seed))
     np.random.seed(rand_seed)
     torch.manual_seed(rand_seed)
@@ -52,19 +52,19 @@ def test_net(model, data_loader, args):
         acc_time += time.time() - begin_time
         loss, _, _ = model.call_loss()
 
-        acc_loss += float(loss)*external_input.shape[1]
+        acc_loss += float(loss) * external_input.shape[1]
         acc_items += external_input.shape[1]
 
         acc_rrse += float(common.RRSE(
             observation, model.decode_observation(mode='sample'))
-        )*external_input.shape[1]
+        ) * external_input.shape[1]
 
     model.train()
-    return acc_loss/acc_items, acc_rrse/acc_items, acc_time/acc_items
+    return acc_loss / acc_items, acc_rrse / acc_items, acc_time / acc_items
 
 
 def main_train(args, logging):
-    # 设置随即种子，便于时间结果复现
+    # 设置随机种子，便于时间结果复现
     set_random_seed(args.random_seed)
 
     # 根据args的配置生成模型
@@ -94,7 +94,8 @@ def main_train(args, logging):
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.train.schedule.step_size, gamma=args.train.schedule.gamma)
     elif args.train.schedule.type == 'cosine':
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max, eta_min=args.train.schedule.eta_min)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max,
+                                                               eta_min=args.train.schedule.eta_min)
 
     # 构建训练集和验证集
     if args.dataset.type == 'fake':
@@ -114,7 +115,7 @@ def main_train(args, logging):
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
         # 训练测试集的比例划分
-        train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         train_dataset = WesternDataset(data_csvs[:train_size],
                                        args.history_length + args.forward_length, step=args.dataset.dataset_window,
                                        dilation=args.dataset.dilation)
@@ -125,13 +126,15 @@ def main_train(args, logging):
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
         data_csvs = [pd.read_csv(os.path.join(data_dir, file)) for file in os.listdir(data_dir)]
         dataset_split = [0.6, 0.2, 0.2]
-        train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         train_dataset = WesternConcentrationDataset(data_csvs[:train_size],
-                                       args.history_length + args.forward_length, step=args.dataset.dataset_window,
-                                       dilation=args.dataset.dilation)
+                                                    args.history_length + args.forward_length,
+                                                    step=args.dataset.dataset_window,
+                                                    dilation=args.dataset.dilation)
         val_dataset = WesternConcentrationDataset(data_csvs[train_size:train_size + val_size],
-                                     args.history_length + args.forward_length, step=args.dataset.dataset_window,
-                                     dilation=args.dataset.dilation)
+                                                  args.history_length + args.forward_length,
+                                                  step=args.dataset.dataset_window,
+                                                  dilation=args.dataset.dilation)
     elif args.dataset.type.startswith('cstr'):
         data_urls = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/cstr/data_url.csv')
@@ -162,10 +165,17 @@ def main_train(args, logging):
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
 
+    elif args.dataset.type.startswith('southeast'):
+        dataset_split = [0.6, 0.2, 0.2]
+        train_dataset, val_dataset, _ = SoutheastOreDataset(
+            data_dir=hydra.utils.get_original_cwd(),
+            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step]
+        ).get_split_dataset(dataset_split)
+
     else:
         raise NotImplementedError
 
-    #构建dataloader
+    # 构建dataloader
     train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size,
                               shuffle=True, num_workers=args.train.num_workers)
     val_loader = DataLoader(val_dataset, batch_size=args.train.batch_size, shuffle=False,
@@ -212,11 +222,12 @@ def main_train(args, logging):
             logging(
                 'epoch-round = {}-{} with loss = {:.4f} kl_loss = {:.4f}  likelihood_loss = {:.4f} '
                 'prepare time {:.4f} forward time {:.4f}, forward percent{:.4f}%'.format(
-                    epoch, i, float(loss), float(kl_loss), float(likelihood_loss), t2-t1, t3-t2, 100*(t3-t2)/(t3-t1))
+                    epoch, i, float(loss), float(kl_loss), float(likelihood_loss), t2 - t1, t3 - t2,
+                                                                                   100 * (t3 - t2) / (t3 - t1))
             )
 
         logging('epoch = {} with train_loss = {:.4f} with kl_loss = {:.4f} with likelihood_loss = {:.4f}'.format(
-            epoch, float(acc_loss/acc_items), float(acc_kl_loss/acc_items), float(acc_likelihood_loss/acc_items)
+            epoch, float(acc_loss / acc_items), float(acc_kl_loss / acc_items), float(acc_likelihood_loss / acc_items)
         ))
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
@@ -254,7 +265,6 @@ def main_train(args, logging):
 
 @hydra.main(config_path='config', config_name="config.yaml")
 def main_app(args: DictConfig) -> None:
-
     from common import SimpleLogger, training_loss_visualization
 
     # Model Training
@@ -285,9 +295,3 @@ def main_app(args: DictConfig) -> None:
 
 if __name__ == '__main__':
     main_app()
-
-
-
-
-
-
