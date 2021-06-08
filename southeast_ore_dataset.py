@@ -79,6 +79,35 @@ class SoutheastOreDataset(Dataset):
                 self.split_pos.append(j)
 
     @cal_time
+    def linear_interpolation(self, data, start_time, end_time=None):
+        """
+        对数据进行线性插值
+        """
+        current_time = start_time
+        # datafream转list
+        data = data.to_dict('records')
+        i = 0
+        data_len = len(data)
+        return_data = {'time': [], 'value': []}
+        if current_time < data[0]['time']:
+            current_time = data[0]['time']
+        while (data[data_len - 1]['time'] >= current_time and i < data_len - 1):
+            if data[i]['time'] <= current_time:
+                if current_time < data[i + 1]['time']:
+                    inter_value = data[i]['value'] + (
+                            (current_time - data[i]['time']) / (data[i + 1]['time'] - data[i]['time'])) * (
+                                          data[i + 1]['value'] - data[i]['value'])
+                    return_data['time'].append(current_time)
+                    return_data['value'].append(inter_value)
+                    current_time = current_time + datetime.timedelta(seconds=self.inter_sep)
+                    if end_time is not None and current_time > end_time:
+                        return pd.DataFrame(return_data)
+                else:
+                    i = i + 1
+            else:
+                print('error')
+
+    @cal_time
     def get_filling_range(self, key, time_range=None):
         """
         筛选满足规则的数据段
@@ -183,18 +212,20 @@ class SoutheastOreDataset(Dataset):
                 end_time = self.get_time_end(th_id, t)
                 df_data = queryset2df(
                     GmsMonitor.objects(
-                        time__gte=start_time, time__lt=end_time).only(
+                        time__gte=time_range[0], time__lt=time_range[1]).only(
                         'point_id', 'time', 'Monitoring_value').filter(
                         point_id=point_id).order_by("time"))
                 # interpolate
-                helper = pd.DataFrame({'time': pd.date_range(start_time, end_time,
-                                                             freq=str(self.inter_sep)+"S")})
-                df_data = pd.merge(df_data, helper, on='time', how='outer')
-                df_data = df_data.set_index("time")
-                df_data.sort_index(ascending=True)
-                df_data = df_data[~df_data.index.duplicated()]
-                df_data = df_data.interpolate(self.inter_method)
-                df_data = df_data.reset_index().rename(columns={'value': point_id})
+                # helper = pd.DataFrame({'time': pd.date_range(start_time, end_time,
+                #                                              freq=str(self.inter_sep)+"S")})
+                # df_data = pd.merge(df_data, helper, on='time', how='outer')
+                # df_data = df_data.set_index("time")
+                # df_data.sort_index(ascending=True)
+                # df_data = df_data[~df_data.index.duplicated()]
+                # df_data = df_data.interpolate(self.inter_method)
+                df_data = self.linear_interpolation(df_data, start_time=start_time, end_time=end_time)
+
+                df_data = df_data.rename(columns={'value': point_id})
                 df_list.append(df_data)
 
             df_merge = df_list[0]
