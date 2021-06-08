@@ -6,6 +6,7 @@ import numpy as np
 import os
 from torch.utils.data import Dataset
 import copy
+from common import cal_time
 
 
 def mongodb_connect():
@@ -39,16 +40,16 @@ class SoutheastOreDataset(Dataset):
         }
 
         self.raw_data = {1: [], 2: []}
-        self.data_dir = os.path.join(data_dir, 'data/south_con')
+        self.data_dir = os.path.join(data_dir, 'data/south_con/')
 
         # interpolation config
         self.inter_sep = 10
-        self.inter_method = 'linear'
+        self.inter_method = 'quadratic'
 
         # 更新二号浓密机的fill_round
         self.already_filled_round = 0
         # Network in/out config
-        self.in_columns = ["out_c", "out_f", "pressure"]
+        self.in_columns = ["out_f", "pressure"]
         self.out_column = "out_c"
         self.in_length = int(60 / self.inter_sep) * step_time[0]  # 30min
         self.out_length = int(60 / self.inter_sep) * step_time[1]  # 10min
@@ -77,6 +78,7 @@ class SoutheastOreDataset(Dataset):
             for j in range(self.in_length, this_fill_length - self.out_length, self.window_step):
                 self.split_pos.append(j)
 
+    @cal_time
     def get_filling_range(self, key, time_range=None):
         """
         筛选满足规则的数据段
@@ -125,11 +127,14 @@ class SoutheastOreDataset(Dataset):
 
         return c_f_range
 
+    @cal_time
     def zScoreNormalization(self, th_id, df):
         for point_id in self.point[th_id]:
             mean = df[point_id].mean()
             std = df[point_id].std()
             df[point_id] = df[point_id].apply(lambda x: (x - mean) / std)
+            if point_id == 7 or point_id == 8:
+                print(f'浓密机{th_id}出料浓度的标准差为{std},均值为{mean}')
         return df
 
     def get_time_end(self, th_id, time_range):
@@ -149,6 +154,7 @@ class SoutheastOreDataset(Dataset):
                     "time").first().time)
         return max(time_list)
 
+    @cal_time
     def save_csv(self, th_id, point_df, time):
         round_count = int(max(point_df['fill_round'])) + 1
         path = self.data_dir
@@ -173,7 +179,7 @@ class SoutheastOreDataset(Dataset):
         for inx, t in enumerate(time_list):
             df_list = []
             for point_id in self.point[th_id]:
-                start_time = self.get_time_strat(th_id, t)
+                start_time = self.get_time_start(th_id, t)
                 end_time = self.get_time_end(th_id, t)
                 df_data = queryset2df(
                     GmsMonitor.objects(
@@ -181,11 +187,13 @@ class SoutheastOreDataset(Dataset):
                         'point_id', 'time', 'Monitoring_value').filter(
                         point_id=point_id).order_by("time"))
                 # interpolate
+                helper = pd.DataFrame({'time': pd.date_range(start_time, end_time,
+                                                             freq=str(self.inter_sep)+"S")})
+                df_data = pd.merge(df_data, helper, on='time', how='outer')
                 df_data = df_data.set_index("time")
                 df_data.sort_index(ascending=True)
                 df_data = df_data[~df_data.index.duplicated()]
-                df_data = df_data.resample(
-                    str(self.inter_sep) + 'S').interpolate(self.inter_method, limit_direction='both')
+                df_data = df_data.interpolate(self.inter_method)
                 df_data = df_data.reset_index().rename(columns={'value': point_id})
                 df_list.append(df_data)
 
@@ -203,20 +211,24 @@ class SoutheastOreDataset(Dataset):
         self.already_filled_round = len(time_list)
 
     def __getitem__(self, item):
-        item_in = np.array(self.data[self.split_pos[item] - self.in_length:self.split_pos[item]][self.in_columns],
-                           dtype=np.float32)
-        item_out = np.array([self.data[self.split_pos[item]:self.split_pos[item] + self.out_length][self.out_column]],
-                            dtype=np.float32).T
+        item_in = np.array(
+            self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][self.in_columns],
+            dtype=np.float32)
+        item_out = np.array(
+            [self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][self.out_column]],
+            dtype=np.float32).T
         return item_in, item_out
 
     def __len__(self):
         return len(self.split_pos)
 
+    @cal_time
     def get_part_dataset(self, start, end):
         transcript = copy.deepcopy(self)
         transcript.split_pos = transcript.split_pos[int(len(self.split_pos) * start):int(len(self.split_pos) * end)]
         return transcript
 
+    @cal_time
     def get_split_dataset(self, dataset_split: list):
         """
 

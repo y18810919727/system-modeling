@@ -108,6 +108,7 @@ def main_test(args, logging, ckpt_path):
         for i, data in enumerate(test_loader):
 
             external_input, observation = data
+
             external_input = external_input.permute(1, 0, 2)
             observation = observation.permute(1, 0, 2)
 
@@ -283,7 +284,7 @@ def main_app(args: DictConfig) -> None:
     if not hasattr(args, 'save_dir'):
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
-    ckpt_path = os.path.join(hydra.utils.get_original_cwd(), args.save_dir)
+    ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vrnn_/2021-06-07_10-52-18'
     logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
     try:
         with torch.no_grad():
