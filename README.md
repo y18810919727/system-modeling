@@ -55,6 +55,10 @@ CUDA_VISIBLE_DEVICES=3 python model_test.py 'save_dir=ckpt/west/vrnn/vrnn_model.
     | seq2seq | attention seq2seq |  |References: https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html |
     
 - ```plt_cnt```: 决定运行```model_test.py```时会画几个图在figs中
+
+## jupyter脚本
+- ```jupyter/generate_data_frame.ipynb```：生成所有数据集的所有模型的对比结果(不考虑```ckpt/${dataset.type}/tmp/``` 目录下的模型)
+- ```jupyter/ErrorLog.ipynb```: 自动检测并删除训练失败的日志目录(不考虑```ckpt/${dataset.type}/tmp/``` 目录下的模型)
 ## hydra  
 参考资料: https://hydra.cc/
 
