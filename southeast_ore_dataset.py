@@ -44,7 +44,6 @@ class SoutheastOreDataset(Dataset):
 
         # interpolation config
         self.inter_sep = 10
-        self.inter_method = 'quadratic'
 
         # 更新二号浓密机的fill_round
         self.already_filled_round = 0
@@ -78,7 +77,6 @@ class SoutheastOreDataset(Dataset):
             for j in range(self.in_length, this_fill_length - self.out_length, self.window_step):
                 self.split_pos.append(j)
 
-    @cal_time
     def linear_interpolation(self, data, start_time, end_time=None):
         """
         对数据进行线性插值
@@ -91,7 +89,7 @@ class SoutheastOreDataset(Dataset):
         return_data = {'time': [], 'value': []}
         if current_time < data[0]['time']:
             current_time = data[0]['time']
-        while (data[data_len - 1]['time'] >= current_time and i < data_len - 1):
+        while data[data_len - 1]['time'] >= current_time and i < data_len - 1:
             if data[i]['time'] <= current_time:
                 if current_time < data[i + 1]['time']:
                     inter_value = data[i]['value'] + (
@@ -100,12 +98,13 @@ class SoutheastOreDataset(Dataset):
                     return_data['time'].append(current_time)
                     return_data['value'].append(inter_value)
                     current_time = current_time + datetime.timedelta(seconds=self.inter_sep)
-                    if end_time is not None and current_time > end_time:
+                    if current_time > end_time:
                         return pd.DataFrame(return_data)
                 else:
                     i = i + 1
             else:
                 print('error')
+        return pd.DataFrame(return_data)
 
     @cal_time
     def get_filling_range(self, key, time_range=None):
@@ -156,7 +155,6 @@ class SoutheastOreDataset(Dataset):
 
         return c_f_range
 
-    @cal_time
     def zScoreNormalization(self, th_id, df):
         for point_id in self.point[th_id]:
             mean = df[point_id].mean()
@@ -201,9 +199,10 @@ class SoutheastOreDataset(Dataset):
             self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename))
             print(f"已读取浓密机{th_id}的{round_count}段数据，共计{data_count}条")
 
+    @cal_time
     def gene_data(self, th_id, time_range=None):
         time_list = self.get_filling_range(th_id, time_range)
-        print("{count}个时间段".format(count=len(time_list)))
+        print("浓密机{th_id} 共{count}个时间段".format(th_id=th_id, count=len(time_list)))
         all_df = pd.DataFrame()
         for inx, t in enumerate(time_list):
             df_list = []
@@ -212,17 +211,9 @@ class SoutheastOreDataset(Dataset):
                 end_time = self.get_time_end(th_id, t)
                 df_data = queryset2df(
                     GmsMonitor.objects(
-                        time__gte=time_range[0], time__lt=time_range[1]).only(
+                        time__gte=t[0], time__lt=t[1]).only(
                         'point_id', 'time', 'Monitoring_value').filter(
                         point_id=point_id).order_by("time"))
-                # interpolate
-                # helper = pd.DataFrame({'time': pd.date_range(start_time, end_time,
-                #                                              freq=str(self.inter_sep)+"S")})
-                # df_data = pd.merge(df_data, helper, on='time', how='outer')
-                # df_data = df_data.set_index("time")
-                # df_data.sort_index(ascending=True)
-                # df_data = df_data[~df_data.index.duplicated()]
-                # df_data = df_data.interpolate(self.inter_method)
                 df_data = self.linear_interpolation(df_data, start_time=start_time, end_time=end_time)
 
                 df_data = df_data.rename(columns={'value': point_id})
