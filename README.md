@@ -6,7 +6,7 @@
 ``` python
 CUDA_VISIBLE_DEVICES=3 python model_train.py --multirun model.D=1,5,10,15,20 dataset=west model.k_size=16 model.dynamic.num_linears=8
 ```
- 使用3号GPU，参数D分别为1,5,10,15,20五种情况,训练五个模型，其他参数默认。训练模型与日志存储在```multirun/${now:%Y-%m-%d_%H-%M-%S}```
+ 使用3号GPU，参数D分别为1,5,10,15,20五种情况,训练五个模型，其他参数默认。
 
 > 参考```scripts/vrnn_multirun.sh```文件
 
@@ -15,9 +15,15 @@ CUDA_VISIBLE_DEVICES=3 python model_train.py --multirun model.D=1,5,10,15,20 dat
 ``` python
 CUDA_VISIBLE_DEVICES=3 python model_train.py train.batch_size=32 dataset=winding model.D=1
 ```
-训练模型与日志存储在```ckpt/${now:%Y-%m-%d_%H-%M-%S}```中
+训练模型与日志存储在```ckpt/${dataset.type}/${save_dir}/${model.type}_${实验参数}/${now:%Y-%m-%d_%H-%M-%S}```中
 
-训练完成后将自动绘制loss图，并在测试集上进行评估，测试之后会在目录下生成```figs```文件夹以及```test.out```日志文件
+训练完成后将自动绘制loss图，并在测试集上进行评估，目录包含的文件：测试之后会在目录下生成```figs```文件夹以及```test.out```日志文件
+- figs: 测试集中部分数据的预测可视化结果，可修改test.plt_cnt
+- best.pth: 验证集score最高的模型参数
+- log.out: 训练过程日志
+- train_loss.png: 训练loss图
+- val_loss.png: 验证集loss和训练集loss对比图
+- test.out: 验证集中每条数据对的预测指标详情
 
 ## 手动测试
 运行```model_test``` 手动测试模型
@@ -46,6 +52,7 @@ CUDA_VISIBLE_DEVICES=3 python model_test.py 'save_dir=ckpt/west/vrnn/vrnn_model.
     | vaecl   |  VAE combinational linears  |   动态系统为自适应线性组合，线性解器 | 部分参考：Fraccaro, M., Kamronn, S., Paquet, U., & Winther, O. (2017). A disentangled recognition and nonlinear dynamics model for unsupervised learning. *Advances in Neural Information Processing Systems*, *2017*-*Decem*(section 5), 3602–3611. |
     | vrnn | variational RNN |  | Chung, J., Kastner, K., Dinh, L., Goel, K., Courville, A., & Bengio, Y. (2015). A recurrent latent variable model for sequential data. *Advances in Neural Information Processing Systems*, *2015*-*Janua*, 2980–2988. |
     | srnn | stochastic recurrent neural network |  | Fraccaro, M., Sønderby, S. K., Paquet, U., & Winther, O. (2016). Sequential neural models with stochastic layers. *Advances in Neural Information Processing Systems*, 2207–2215. |
+    | seq2seq | attention seq2seq |  |References: https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html |
     
 - ```plt_cnt```: 决定运行```model_test.py```时会画几个图在figs中
 ## hydra  

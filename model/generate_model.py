@@ -58,6 +58,13 @@ def generate_model(args):
             k=args.model.k_size,
             num_layers=args.model.num_layers
         )
+    elif args.model.type == 'seq2seq':
+        from model.attention_seq2seq import AttentionSeq2Seq
+
+        model = AttentionSeq2Seq(input_size=args.dataset.input_size, observations_size=args.dataset.observation_size,
+                               state_size=args.model.state_size, max_length=args.model.max_length,
+                               num_layers=args.model.num_layers, dropout_p=args.model.dropout_p)
+
     else:
         raise NotImplementedError
     return model

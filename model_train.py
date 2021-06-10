@@ -13,7 +13,6 @@ import sys
 import pandas
 import pandas as pd
 
-from southeast_ore_dataset import SoutheastOreDataset
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
 from torch.utils.data import DataLoader
 import hydra
@@ -166,6 +165,8 @@ def main_train(args, logging):
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type.startswith('southeast'):
+
+        from southeast_ore_dataset import SoutheastOreDataset
         dataset_split = [0.6, 0.2, 0.2]
         train_dataset, val_dataset, _ = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
