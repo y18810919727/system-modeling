@@ -31,7 +31,7 @@ class SoutheastOreDataset(Dataset):
     东南矿体数据集
     """
 
-    def __init__(self, data_dir, step_time, time_range=None):
+    def __init__(self, data_dir, step_time, in_name, out_name, time_range=None):
         # 进料浓度、出料浓度、进料流量、底流流量、泥层压力
         self.point = {
             1: [5, 7, 11, 17, 67],
@@ -182,13 +182,15 @@ class SoutheastOreDataset(Dataset):
         return max(time_list)
 
     @cal_time
-    def save_csv(self, th_id, point_df, time):
+    def save_csv(self, th_id, point_df, unnormalized=False):
         round_count = int(max(point_df['fill_round'])) + 1
         path = self.data_dir
         file_name = "{key}-{round_count}-{data_count}.csv". \
             format(key=th_id,
                    round_count=round_count,
                    data_count=point_df.shape[0])
+        if unnormalized:
+            file_name = file_name[:-4] + "unnormalized.csv"
         if not os.path.exists(path):
             os.makedirs(path)
         point_df.to_csv(path + file_name)
@@ -200,7 +202,7 @@ class SoutheastOreDataset(Dataset):
             print(f"已读取浓密机{th_id}的{round_count}段数据，共计{data_count}条")
 
     @cal_time
-    def gene_data(self, th_id, time_range=None):
+    def gene_data(self, th_id, time_range=None, unnormalized_save=False):
         time_list = self.get_filling_range(th_id, time_range)
         print("浓密机{th_id} 共{count}个时间段".format(th_id=th_id, count=len(time_list)))
         all_df = pd.DataFrame()
@@ -224,12 +226,13 @@ class SoutheastOreDataset(Dataset):
                 df_merge = df_merge.merge(df_list[i + 1], on='time')
             df_merge['fill_round'] = inx + self.already_filled_round
             all_df = all_df.append(df_merge)
-
+        if not unnormalized_save:
+            self.save_csv(th_id, all_df, unnormalized=True)
         all_df = self.zScoreNormalization(th_id, all_df)
         all_df.rename(columns={self.point[th_id][i]: self.point['name'][i] for i in range(len(self.point['name']))},
                       inplace=True)
         self.raw_data[th_id] = all_df
-        self.save_csv(th_id, all_df, time_range)
+        self.save_csv(th_id, all_df)
         self.already_filled_round = len(time_list)
 
     def __getitem__(self, item):
@@ -270,5 +273,7 @@ class SoutheastOreDataset(Dataset):
 
 
 if __name__ == '__main__':
-    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 4, 2, 0, 0, 0))
-    dataset = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range)
+    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 6, 10, 0, 0, 0))
+    dataset = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
+                                  in_name=["out_f", "pressure"], out_name="out_c")
+
