@@ -123,3 +123,8 @@ ckpt/*.pth
 !/jupyter/Redraw.ipynb
 scripts/tmp/*
 /ckpt/
+
+/data/south_con/*.csv
+!/data/south_con/*urls.csv
+!/data/winding/data_url.csv
+!/data/AccessKey.csv

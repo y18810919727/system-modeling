@@ -3,6 +3,6 @@ type: seq2seq
 state_size: 32
 k_size: 32
 num_layers: 1
-max_length: 200
+max_length: 250
 dropout_p: 0.1
 

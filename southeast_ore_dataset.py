@@ -1,8 +1,8 @@
-import mongoengine
 import datetime
 from data.db_models import GmsMonitor
 import pandas as pd
 import numpy as np
+import hydra
 import os
 from torch.utils.data import Dataset
 import copy
@@ -10,6 +10,7 @@ from common import cal_time
 
 
 def mongodb_connect():
+    import mongoengine
     mongoengine.connect('nfca_db', host='192.168.0.37', port=27017, username='nfca', password='nfca')
 
 
@@ -31,7 +32,7 @@ class SoutheastOreDataset(Dataset):
     东南矿体数据集
     """
 
-    def __init__(self, data_dir, step_time, in_name, out_name, time_range=None):
+    def __init__(self, data_dir, step_time, time_range=None, offline_data=True):
         # 进料浓度、出料浓度、进料流量、底流流量、泥层压力
         self.point = {
             1: [5, 7, 11, 17, 67],
@@ -54,12 +55,25 @@ class SoutheastOreDataset(Dataset):
         self.out_length = int(60 / self.inter_sep) * step_time[1]  # 10min
         self.window_step = int(60 / self.inter_sep) * step_time[2]  # 5min
 
-        mongodb_connect()
-        if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
+        if not offline_data:
+        # if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
+            mongodb_connect()
             self.gene_data(1, time_range)
             self.gene_data(2, time_range)
+
         else:
             # TODO 长期计划：add config文件，注明Dataset时间段、是否被插值
+            from common import detect_download
+            import pandas as pd
+            access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
+            _ = detect_download(
+                pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), self.data_dir, 'export_urls.csv')),
+                self.data_dir,
+                'http://oss-cn-beijing.aliyuncs.com',
+                'southeast-thickener',
+                access_key['AccessKey ID'][0],
+                access_key['AccessKey Secret'][0]
+            )
             self.read_csv()
 
         # merge both thickeners data
@@ -197,6 +211,8 @@ class SoutheastOreDataset(Dataset):
 
     def read_csv(self):
         for filename in os.listdir(self.data_dir):
+            if filename.count('-') != 2:
+                continue
             th_id, round_count, data_count = filename[:-4].split('-')
             self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename))
             print(f"已读取浓密机{th_id}的{round_count}段数据，共计{data_count}条")

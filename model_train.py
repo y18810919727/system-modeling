@@ -97,20 +97,28 @@ def main_train(args, logging):
                                                                eta_min=args.train.schedule.eta_min)
 
     # 构建训练集和验证集
+
+    access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
     if args.dataset.type == 'fake':
         train_df = pandas.read_csv('data/fake_train.csv')
         val_df = pandas.read_csv('data/fake_val.csv')
         train_dataset = FakeDataset(train_df)
         val_dataset = FakeDataset(val_df)
     elif args.dataset.type == 'west':
-        data_urls = pd.read_csv(
-            os.path.join(hydra.utils.get_original_cwd(), 'data/data_url.csv')
+        objects = pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), 'data', 'west', 'data_url.csv')
         )
-        base = os.path.join(hydra.utils.get_original_cwd(), 'data/part')
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/west')
         if not os.path.exists(base):
             os.mkdir(base)
         # 检测数据集路径，如果本地没有数据自动下载
-        data_paths = detect_download(data_urls, base)
+        data_paths = detect_download(objects,
+                                     base,
+                                     'http://oss-cn-beijing.aliyuncs.com',
+                                     'west-part-pressure',
+                                     access_key['AccessKey ID'][0],
+                                     access_key['AccessKey Secret'][0]
+                                     )
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
         # 训练测试集的比例划分
@@ -135,13 +143,20 @@ def main_train(args, logging):
                                                   step=args.dataset.dataset_window,
                                                   dilation=args.dataset.dilation)
     elif args.dataset.type.startswith('cstr'):
-        data_urls = pd.read_csv(
+        objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/cstr/data_url.csv')
         )
         base = os.path.join(hydra.utils.get_original_cwd(), 'data/cstr')
         if not os.path.exists(base):
             os.mkdir(base)
-        _ = detect_download(data_urls, base)
+        # _ = detect_download(objects, base)
+        _ = detect_download(objects,
+                            base,
+                            'http://oss-cn-beijing.aliyuncs.com',
+                            'io-system-data',
+                            access_key['AccessKey ID'][0],
+                            access_key['AccessKey Secret'][0]
+                            )
         train_dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
@@ -150,13 +165,19 @@ def main_train(args, logging):
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type.startswith('winding'):
-        data_urls = pd.read_csv(
+        objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/winding/data_url.csv')
         )
         base = os.path.join(hydra.utils.get_original_cwd(), 'data/winding')
         if not os.path.exists(base):
             os.mkdir(base)
-        _ = detect_download(data_urls, base)
+        _ = detect_download(objects,
+                            base,
+                            'http://oss-cn-beijing.aliyuncs.com',
+                            'io-system-data',
+                            access_key['AccessKey ID'][0],
+                            access_key['AccessKey Secret'][0]
+                            )
         train_dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
@@ -170,7 +191,8 @@ def main_train(args, logging):
         dataset_split = [0.6, 0.2, 0.2]
         train_dataset, val_dataset, _ = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
-            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step]
+            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
+            offline_data=args.dataset.offline_data
         ).get_split_dataset(dataset_split)
 
     else:

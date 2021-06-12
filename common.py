@@ -145,34 +145,36 @@ def cal_time(fn):
         return f
     return wrapper
 
-def detect_download(data_urls, base):
-    import pandas as pd
-    data_paths = []
+def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, accessKey_secret):
 
-    def download(url, path):
+    import oss2
+
+    def download(bucket, name, path):
         """
-        数据存储在了阿里云oss上
+        Data is stored in Aliyun OSS
         Args:
-            url:
-            path:
-
-        Returns:
-
+            bucket:
+            name: name in oss
+            path: path of the downloaded local file
+        Returns: path if successful, else None
         """
         import urllib
-        print("Downloading file %s from %s:" % (path, url))
+        print("Downloading file %s:" % name)
         try:
-            urllib.request.urlretrieve(url, filename=os.path.join( path))
+            # urllib.request.urlretrieve(url, filename=os.path.join( path))
+            bucket.get_object_to_file(name, path)
             return path
         except Exception as e:
-            print("Error occurred when downloading file %s from %s, error message :" % (path, url))
+            print("Error occurred when downloading file %s from %s, error message :" % (path, bucket))
             return None
-    for name, url in zip(data_urls['object'], data_urls['url']):
+    auth = oss2.Auth(accessKey_id, accessKey_secret)
+    bucket = oss2.Bucket(auth, oss_endpoint, bucket_name)
+    data_paths = []
+    for name in objects['object']:
         path = os.path.join(base, name)
-        if not os.path.exists(path) and not download(url, path):
-            pass
-        else:
+        if os.path.exists(path) or download(bucket, name, path):
             data_paths.append(path)
+
     return data_paths
 
 
