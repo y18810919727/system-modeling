@@ -8,6 +8,7 @@ import json
 
 import torch
 import logging
+from torch import nn
 
 
 class SimpleLogger(object):
@@ -177,6 +178,11 @@ def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, acce
 
     return data_paths
 
+def init_network_weights(net, std=0.1):
+    for m in net.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, mean=0, std=std)
+            nn.init.constant_(m.bias, val=0)
 
 def merge_first_two_dims(tensor):
     size = tensor.size()

@@ -4,5 +4,6 @@ state_size: 32
 k_size: 32
 num_layers: 1
 max_length: 250
+label_length: 50
 dropout_p: 0.1
 
