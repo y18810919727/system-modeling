@@ -51,12 +51,33 @@ def main_test(args, logging, ckpt_path):
         dataset = FakeDataset(test_df)
         test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.num_workers)
     elif args.dataset.type == 'west':
-        data_urls = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data/data_url.csv'))
-        base = os.path.join(hydra.utils.get_original_cwd(), 'data/part')
+
+        objects = pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), 'data', 'west', 'data_url.csv')
+        )
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/west')
         if not os.path.exists(base):
             os.mkdir(base)
+        # 检测数据集路径，如果本地没有数据自动下载
+
+
+        access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
         from common import detect_download
-        data_paths = detect_download(data_urls, base)
+        data_paths = detect_download(objects,
+                                     base,
+                                     'http://oss-cn-beijing.aliyuncs.com',
+                                     'west-part-pressure',
+                                     access_key['AccessKey ID'][0],
+                                     access_key['AccessKey Secret'][0]
+                                     )
+        # data_csvs = [pd.read_csv(path) for path in data_paths]
+        #
+        # data_urls = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data/data_url.csv'))
+        # base = os.path.join(hydra.utils.get_original_cwd(), 'data/part')
+        # if not os.path.exists(base):
+        #     os.mkdir(base)
+        # from common import detect_download
+        # data_paths = detect_download(data_urls, base)
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, _ = [int(len(data_csvs) * ratio) for ratio in dataset_split]
@@ -100,8 +121,12 @@ def main_test(args, logging, ckpt_path):
     acc_loss = 0
     acc_rrse = 0
     acc_time = 0
-    acc_name = ['likelihood', 'ob_rrse'] + ['ob_{}_pear'.format(name) for name in args.dataset.target_names] + \
-               ['pred_rrse'] + ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + ['time']
+    acc_name = ['likelihood', 'ob_rrse'] + \
+               ['ob_{}_rrse'.format(name) for name in args.dataset.target_names] + \
+               ['ob_{}_pear'.format(name) for name in args.dataset.target_names] + \
+               ['pred_rrse'] + \
+               ['pred_{}_rrse'.format(name) for name in args.dataset.target_names] + \
+               ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + ['time']
     acc_info = np.zeros(len(acc_name))
 
     def single_data_generator(acc_info):
@@ -147,35 +172,47 @@ def main_test(args, logging, ckpt_path):
 
             # 统计参数1： 预测的rrse
             prediction_rrse = RRSE(observation[prefix_length:], pred_observations_sample)
+            prediction_rrse_single = [float(RRSE(
+                observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
+            )) for _ in range(observation.shape[-1])]
             # 统计参数2： 预测的pearson
             prediction_pearsonr = [float(cal_pearsonr(
                 observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
             )) for _ in range(observation.shape[-1])]
             # 统计参数3：重构RRSE
-            rrse = RRSE(
+            ob_rrse = RRSE(
                 observation, decode_observations
             )
+            ob_rrse_single = [float(RRSE(
+                observation[:, :, _], decode_observations[:, :, _]
+            )) for _ in range(observation.shape[-1])]
             # 统计参数4：重构pearson
             ob_pear = [float(cal_pearsonr(
                 observation[:, :, _], decode_observations[:, :, _]
             )) for _ in range(observation.shape[-1])]
 
-            # 统计参数5: 真实序列在预测分布上的似然
+            # 统计参数5（未实现）: 真实序列在预测分布上的似然
 
-            target_name = args.dataset.target_names
             ob_pearson_info = ' '.join(
                 ['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
             pred_pearson_info = ' '.join(['pred_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(
                 prediction_pearsonr, args.dataset.target_names)])
 
-            log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_pearson_info + ' pred_rrse={:.4f} ' + pred_pearson_info + ' time={:.4f}'
+            ob_rrse_info = ' '.join(
+                ['ob_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in zip(ob_rrse_single, args.dataset.target_names)])
+            pred_rrse_info = ' '.join(['pred_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in zip(
+                prediction_rrse_single, args.dataset.target_names)])
+
+            log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ob_pearson_info + \
+                      ' pred_rrse={:.4f} ' + pred_rrse_info + pred_pearson_info + ' time={:.4f}'
             logging(log_str.format(i, float(loss),
-                                   float(rrse),
+                                   float(ob_rrse),
                                    prediction_rrse,
                                    end_time - beg_time))
 
             acc_info += np.array([
-                float(loss), float(rrse), *ob_pear, prediction_rrse, *prediction_pearsonr, end_time - beg_time
+                float(loss), float(ob_rrse), *ob_rrse_single, *ob_pear,
+                prediction_rrse, *prediction_rrse_single, *prediction_pearsonr, end_time - beg_time
             ], dtype=np.float32)
 
             for i in range(external_input.size()[1]):

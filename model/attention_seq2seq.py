@@ -90,7 +90,7 @@ class AttnDecoderRNN(nn.Module):
 
 class AttentionSeq2Seq(nn.Module):
 
-    def __init__(self, input_size, observations_size, state_size=32, num_layers=1, dropout_p=0.1, max_length=80):
+    def __init__(self, input_size, observations_size, state_size=32, num_layers=1, dropout_p=0.1, max_length=80, label_length=40):
 
         super(AttentionSeq2Seq, self).__init__()
 
@@ -100,6 +100,7 @@ class AttentionSeq2Seq(nn.Module):
         self.observations_size = observations_size
         self.drop_out = dropout_p
         self.max_length = max_length
+        self.label_length = label_length
 
         self.encoder = EncoderRNN(input_size + observations_size, state_size, num_layers)
         self.decoder = AttnDecoderRNN(input_size, state_size, observations_size, num_layers, dropout_p=dropout_p, max_length=max_length)
@@ -152,11 +153,14 @@ class AttentionSeq2Seq(nn.Module):
         self.observations_seq = observations_seq  # saving observations_seq for calculating loss
 
         # Get the outputs of encoder, encoder_outputs -> (max_len, batch_size, hidden_size), encoder_hidden -> (1, batch_size, hidden_size)
-        encoder_outputs_last, encoder_hidden_last = (
+        encoder_outputs_last, encoder_hidden_last, label_seq = (
             torch.zeros(self.max_length, batch_size, self.encoder.hidden_size, device=self.external_input_seq.device),
-            self.encoder.init_hidden(batch_size, external_input_seq.device)
+            self.encoder.init_hidden(batch_size, external_input_seq.device),
+            torch.zeros(self.label_length, batch_size, self.observations_size+self.input_size, device=self.external_input_seq.device),
+
         ) if memory_state is None else (
-            memory_state['encoder_outputs'], memory_state['encoder_hidden'])
+            memory_state['encoder_outputs'], memory_state['encoder_hidden'], memory_state['label_seq']
+        )
 
         assert l <= self.max_length , 'The length of input sequence should be less than max_length. \
         An alternative to predict long sequence is predicting piecewise by split long sequences into cl'
@@ -171,7 +175,11 @@ class AttentionSeq2Seq(nn.Module):
 
         _, predicted_seq, _ = self.forward_prediction(
             external_input_seq[encoding_length:],
-            memory_state={'encoder_outputs': encoder_outputs_half, 'encoder_hidden': encoder_hidden_half}
+            memory_state={'encoder_outputs': encoder_outputs_half,
+                          'encoder_hidden': encoder_hidden_half,
+                          'label_seq': torch.cat(
+                              (label_seq, input_ob_seq[:encoding_length]), dim=0
+                          )[-self.label_length:]}
         )
         self.predicted_seq = predicted_seq
         self.state_mu = self.observations_seq
@@ -184,6 +192,10 @@ class AttentionSeq2Seq(nn.Module):
         memory_state = {}
         memory_state['encoder_outputs'] = encoder_outputs
         memory_state['encoder_hidden'] = encoder_hidden
+        memory_state['label_seq'] = torch.cat(
+            (label_seq, input_ob_seq), dim=0
+        )[-self.label_length:]
+
 
         return self.observations_seq, self.state_logsigma, memory_state
 
@@ -206,18 +218,30 @@ class AttentionSeq2Seq(nn.Module):
         l, batch_size, _ = external_input_seq.size()
 
         # Get the outputs of encoder, encoder_outputs -> (max_len, batch_size, hidden_size), encoder_hidden -> (1, batch_size, hidden_size)
-        encoder_outputs, encoder_hidden = (
+        encoder_outputs, encoder_hidden, label_seq = (
             torch.zeros(self.max_length, batch_size, self.encoder.hidden_size, device=self.external_input_seq.device),
-            self.encoder.init_hidden(batch_size, external_input_seq.device)
-        ) if memory_state is None else (
-            memory_state['encoder_outputs'], memory_state['encoder_hidden'])
+            self.encoder.init_hidden(batch_size, external_input_seq.device),
+            torch.zeros(self.label_length, batch_size, self.observations_size+self.input_size, device=self.external_input_seq.device)
 
-        decoder_output = torch.zeros((batch_size, self.observations_size)).to(external_input_seq.device)
+        ) if memory_state is None else (
+            memory_state['encoder_outputs'], memory_state['encoder_hidden'], memory_state['label_seq'])
+
         decoder_hidden = encoder_hidden
         predicted_list = []
 
+        # Feeding label_seq to generate decoder_hidden, following the implementation of process_one_batch in
+        # https://github.com/zhouhaoyi/Informer2020/blob/main/exp/exp_informer.py/
+        for di in range(label_seq.size(0)):
+            decoder_input = label_seq[di].unsqueeze(dim=0)
+            decoder_output, decoder_hidden, decoder_attention = self.decoder(
+                decoder_input,
+                decoder_hidden,
+                encoder_outputs
+            )
+
+        # decoder_output = torch.zeros((batch_size, self.observations_size)).to(external_input_seq.device)
         for di in range(l):
-            decoder_input = torch.cat([decoder_output, external_input_seq[di]], dim=-1).unsqueeze(0)
+            decoder_input = torch.cat([external_input_seq[di], decoder_output], dim=-1).unsqueeze(0)
             decoder_output, decoder_hidden, decoder_attention = self.decoder(
                 decoder_input,
                 decoder_hidden,
@@ -238,6 +262,7 @@ class AttentionSeq2Seq(nn.Module):
         memory_state = {}
         memory_state['encoder_outputs'] = encoder_outputs
         memory_state['encoder_hidden'] = encoder_hidden
+        memory_state['label_seq'] = torch.cat([label_seq, input_ob_seq], dim=0)[-self.label_length:]
 
         return predicted_dist, self.predicted_seq, memory_state
 

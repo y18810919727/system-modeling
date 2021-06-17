@@ -60,10 +60,32 @@ def generate_model(args):
         )
     elif args.model.type == 'seq2seq':
         from model.attention_seq2seq import AttentionSeq2Seq
-
         model = AttentionSeq2Seq(input_size=args.dataset.input_size, observations_size=args.dataset.observation_size,
-                               state_size=args.model.state_size, max_length=args.model.max_length,
-                               num_layers=args.model.num_layers, dropout_p=args.model.dropout_p)
+                                 state_size=args.model.state_size, max_length=args.model.max_length,
+                                 label_length=args.model.label_length, num_layers=args.model.num_layers,
+                                 dropout_p=args.model.dropout_p)
+
+    elif args.model.type == 'informer':
+        from model.informer.model import Informer
+        model = Informer(
+            args.dataset.input_size,
+            args.dataset.input_size,
+            args.dataset.observation_size,
+            args.model.pred_len,
+            args.model.factor,
+            args.model.d_model,
+            args.model.n_heads,
+            args.model.e_layers, # self.args.e_layers,
+            args.model.d_layers,
+            args.model.d_ff,
+            args.model.dropout,
+            args.model.attn,
+            'gelu',
+            True,
+            True,
+            args.model.mix
+        ).float()
+
 
     else:
         raise NotImplementedError

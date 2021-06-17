@@ -15,6 +15,7 @@ import pandas as pd
 
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
 from torch.utils.data import DataLoader
+from common import init_network_weights
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import traceback
@@ -74,6 +75,7 @@ def main_train(args, logging):
     if args.use_cuda:
         model = model.cuda()
 
+    init_network_weights(model)
     logging('save dir = {}'.format(os.getcwd()))
     logging(model)
 
