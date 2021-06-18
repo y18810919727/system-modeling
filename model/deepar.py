@@ -129,7 +129,7 @@ class DeepAR(nn.Module):
 
         return observations_dist, observations_sample, self.memory_state
 
-    def call_loss(self):
+    def call_loss(self, external_input_seq, observations_seq, memory_state=None):
         """
         Args:
             mu: 高斯似然均值
@@ -143,14 +143,15 @@ class DeepAR(nn.Module):
 
         deepAR中会考虑不存在的label值，这里不考虑
         """
+        state_mu, state_logsigma, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
         l, batch_size, _ = self.observations_seq.shape
-        distribution = torch.distributions.MultivariateNormal(self.state_mu, logsigma2cov(self.state_logsigma))
+        distribution = torch.distributions.MultivariateNormal(state_mu, logsigma2cov(state_logsigma))
         likelihood = distribution.log_prob(self.observations_seq)
         loss_batch_mean = torch.mean(likelihood, dim=1)
         loss = -torch.squeeze(torch.sum(loss_batch_mean, dim=0))
         return loss, 0, 0
 
-    def decode_observation(self, mode='sample'):
+    def decode_observation(self, memory_state, mode='sample'):
         """
 
         Args:

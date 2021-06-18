@@ -48,15 +48,18 @@ def test_net(model, data_loader, args):
             observation = observation.cuda()
 
         begin_time = time.time()
-        model.forward_posterior(external_input, observation)
+
+        # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
+        losses = model.call_loss(external_input, observation)
+        loss = losses['loss']
+        outputs, _ = model.forward_posterior(external_input, observation)
         acc_time += time.time() - begin_time
-        loss, _, _ = model.call_loss()
 
         acc_loss += float(loss) * external_input.shape[1]
         acc_items += external_input.shape[1]
 
         acc_rrse += float(common.RRSE(
-            observation, model.decode_observation(mode='sample'))
+            observation, model.decode_observation(outputs, mode='sample'))
         ) * external_input.shape[1]
 
     model.train()
@@ -231,12 +234,23 @@ def main_train(args, logging):
                 observation = observation.cuda()
 
             t2 = time.time()
-            # 模型forward进行隐变量后验估计
-            model.forward_posterior(external_input, observation)
+
+            # region Modifying the code in training phase
+            # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
+            # # 模型forward进行隐变量后验估计
+            # Delete
+            # ----------------------------------------
+            # model.forward_posterior(external_input, observation)
+            # 计算loss
+            # loss, kl_loss, likelihood_loss = model.call_loss()
+            # ----------------------------------------
+            losses = model.call_loss(external_input, observation)
+            loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
+            # endregion
+            # ----------------------------------------
+
             t3 = time.time()
 
-            # 计算loss
-            loss, kl_loss, likelihood_loss = model.call_loss()
             acc_loss += float(loss) * external_input.shape[1]
             acc_kl_loss += float(kl_loss) * external_input.shape[1]
             acc_likelihood_loss += float(likelihood_loss) * external_input.shape[1]

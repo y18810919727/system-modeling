@@ -142,24 +142,27 @@ def main_test(args, logging, ckpt_path):
                 observation = observation.cuda()
 
             beg_time = time.time()
-            model.forward_posterior(external_input, observation)
             end_time = time.time()
-            loss, _, _ = model.call_loss()
+            losses = model.call_loss(external_input, observation)
+            loss = losses['loss']
+            outputs, memory_state = model.forward_posterior(external_input, observation)
 
             from common import cal_pearsonr, normal_interval, RRSE
 
-            decode_observations_dist = model.decode_observation(mode='dist')
-            decode_observations = model.decode_observation(mode='sample')
+            decode_observations_dist = model.decode_observation(outputs, mode='dist')
+            decode_observations = model.decode_observation(outputs, mode='sample')
             decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
 
             # region Prediction
             prefix_length = args.history_length
-            _, _, memory_state = model.forward_posterior(
+            _, memory_state = model.forward_posterior(
                 external_input[:prefix_length], observation[:prefix_length]
             )
-            pred_observations_dist, pred_observations_sample, memory_state = model.forward_prediction(
+            outputs, memory_state = model.forward_prediction(
                 external_input[prefix_length:], max_prob=True, memory_state=memory_state
             )
+            pred_observations_dist = outputs['predicted_dist']
+            pred_observations_sample = outputs['predicted_seq']
             if args.model.type == 'vaecl':
                 weight_map = memory_state['weight_map']
             else:
@@ -203,8 +206,8 @@ def main_test(args, logging, ckpt_path):
             pred_rrse_info = ' '.join(['pred_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in zip(
                 prediction_rrse_single, args.dataset.target_names)])
 
-            log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ob_pearson_info + \
-                      ' pred_rrse={:.4f} ' + pred_rrse_info + pred_pearson_info + ' time={:.4f}'
+            log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ' ' + ob_pearson_info + \
+                      ' pred_rrse={:.4f} ' + pred_rrse_info + ' ' + pred_pearson_info + ' time={:.4f}'
             logging(log_str.format(i, float(loss),
                                    float(ob_rrse),
                                    prediction_rrse,

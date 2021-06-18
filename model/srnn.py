@@ -132,8 +132,9 @@ class SRNN(nn.Module):
 
         return observations_dist, observations_sample, {'dn': dn, 'zn': z_t_minus_one}
 
-    def call_loss(self):
+    def call_loss(self, external_input_seq, observations_seq, memory_state=None):
 
+        self.forward_posterior(external_input_seq, observations_seq, memory_state)
         D = self.D if self.training else 1
         l, batch_size, _ = self.observations_seq.shape
         memory_state = self.memory_state
@@ -199,7 +200,7 @@ class SRNN(nn.Module):
 
         return (kl_sum - generative_likelihood)/batch_size, kl_sum/batch_size, -generative_likelihood/batch_size
 
-    def decode_observation(self, mode='sample'):
+    def decode_observation(self, memory_state, mode='sample'):
         """
 
         Args:

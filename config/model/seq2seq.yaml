@@ -6,4 +6,5 @@ num_layers: 1
 max_length: 250
 label_length: 50
 dropout_p: 0.1
+train_pred_len: 60 # The length for calculating loss. It is recommended to be equal to config.forward_length. At least, it should be bigger than config.forward_length + config.history_length
 

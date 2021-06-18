@@ -63,15 +63,17 @@ def generate_model(args):
         model = AttentionSeq2Seq(input_size=args.dataset.input_size, observations_size=args.dataset.observation_size,
                                  state_size=args.model.state_size, max_length=args.model.max_length,
                                  label_length=args.model.label_length, num_layers=args.model.num_layers,
-                                 dropout_p=args.model.dropout_p)
+                                 dropout_p=args.model.dropout_p, train_pred_len=args.model.train_pred_len)
 
     elif args.model.type == 'informer':
         from model.informer.model import Informer
         model = Informer(
             args.dataset.input_size,
-            args.dataset.input_size,
+            args.dataset.input_size + args.dataset.observation_size,
             args.dataset.observation_size,
-            args.model.pred_len,
+            args.history_length,
+            args.model.label_len,
+            args.model.train_pred_len,
             args.model.factor,
             args.model.d_model,
             args.model.n_heads,
@@ -85,7 +87,6 @@ def generate_model(args):
             True,
             args.model.mix
         ).float()
-
 
     else:
         raise NotImplementedError

@@ -187,11 +187,12 @@ class VRNN(nn.Module):
 
         return observations_dist, observations_sample, {'hn': h, 'rnn_hidden': rnn_hidden_state}
 
-    def call_loss(self):
+    def call_loss(self, external_input_seq, observations_seq, memory_state=None):
         """
         此方法仅运行在调用完forward_posterior之后
         Returns:
         """
+        self.forward_posterior(external_input_seq, observations_seq, memory_state)
 
         l, batch_size, _ = self.observations_seq.shape
 
@@ -250,7 +251,6 @@ class VRNN(nn.Module):
 
         kl_sum = kl_sum/D
 
-
         # prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
         #     torch.cat([self.external_input_seq_embed, self.h_seq[:-1]], dim=-1)
         # )
@@ -268,7 +268,7 @@ class VRNN(nn.Module):
 
         return (kl_sum - generative_likelihood)/batch_size, kl_sum/batch_size, -generative_likelihood/batch_size
 
-    def decode_observation(self, mode='sample'):
+    def decode_observation(self, memory_state, mode='sample'):
         """
 
         Args:
