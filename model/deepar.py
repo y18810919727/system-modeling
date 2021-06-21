@@ -58,13 +58,11 @@ class DeepAR(nn.Module):
 
         """
         l, batch_size, _ = external_input_seq.size()
-        self.external_input_seq = external_input_seq
-        self.observations_seq = observations_seq
 
         hidden, cell = (
-        torch.zeros(self.num_layers, batch_size, self.hidden_size, device=self.external_input_seq.device),
+        torch.zeros(self.num_layers, batch_size, self.hidden_size, device=external_input_seq.device),
         torch.zeros(self.num_layers, batch_size, self.hidden_size,
-                    device=self.external_input_seq.device)) if memory_state is None else (
+                    device=external_input_seq.device)) if memory_state is None else (
             memory_state['hidden'], memory_state['cell'])
         state_mu = []
         state_logsigma = []
@@ -76,12 +74,15 @@ class DeepAR(nn.Module):
             state_mu.append(mu)
             state_logsigma.append(sigma)
 
-        self.memory_state = {}
-        self.memory_state['hidden'] = hidden
-        self.memory_state['cell'] = cell
-        self.state_mu = torch.stack(state_mu, dim=0)
-        self.state_logsigma = torch.stack(state_logsigma, dim=0)
-        return self.state_mu, self.state_logsigma, self.memory_state
+        outputs = {
+            'state_mu': torch.stack(state_mu, dim=0),
+            'state_logsigma': torch.stack(state_logsigma, dim=0),
+        }
+        memory_state = {
+            'hidden': hidden,
+            'cell': cell,
+        }
+        return outputs, memory_state
 
     def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
         """
@@ -99,11 +100,10 @@ class DeepAR(nn.Module):
 
         """
         l, batch_size, _ = external_input_seq.size()
-        self.external_input_seq = external_input_seq
         hidden, cell = (
-            torch.zeros(self.num_layers, batch_size, self.hidden_size, device=self.external_input_seq.device),
+            torch.zeros(self.num_layers, batch_size, self.hidden_size, device=external_input_seq.device),
             torch.zeros(self.num_layers, batch_size, self.hidden_size,
-                        device=self.external_input_seq.device)) if memory_state is None else (
+                        device=external_input_seq.device)) if memory_state is None else (
             memory_state['hidden'], memory_state['cell'])
         state_mu = []
         state_logsigma = []
@@ -114,20 +114,31 @@ class DeepAR(nn.Module):
             mu = self.distribution_mu(hidden_permute)
             state_mu.append(mu)
             state_logsigma.append(sigma)
-        self.memory_state = {}
-        self.memory_state['hidden'] = hidden
-        self.memory_state['cell'] = cell
 
-        self.state_mu = torch.stack(state_mu, dim=0)
-        self.state_logsigma = torch.stack(state_logsigma, dim=0)
-        observations_dist = self.decode_observation(mode='dist')
+        state_mu = torch.stack(state_mu, dim=0)
+        state_logsigma = torch.stack(state_logsigma, dim=0)
+        observations_dist = self.decode_observation(
+            {'state_mu': state_mu, 'state_logsigma': state_logsigma},
+            mode='dist'
+        )
 
         if max_prob:
             observations_sample = observations_dist.loc
         else:
             observations_sample = normal_differential_sample(observations_dist)
 
-        return observations_dist, observations_sample, self.memory_state
+        memory_state = {
+            'hidden': hidden,
+            'cell': cell
+        }
+        outputs = {
+            'state_mu': state_mu,
+            'state_logsigma': state_logsigma,
+            'predicted_dist': observations_dist,
+            'predicted_seq': observations_sample
+
+        }
+        return outputs, memory_state
 
     def call_loss(self, external_input_seq, observations_seq, memory_state=None):
         """
@@ -143,15 +154,21 @@ class DeepAR(nn.Module):
 
         deepAR中会考虑不存在的label值，这里不考虑
         """
-        state_mu, state_logsigma, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
-        l, batch_size, _ = self.observations_seq.shape
+        outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
+        state_mu = outputs['state_mu']
+        state_logsigma = outputs['state_logsigma']
+        l, batch_size, _ = observations_seq.shape
         distribution = torch.distributions.MultivariateNormal(state_mu, logsigma2cov(state_logsigma))
-        likelihood = distribution.log_prob(self.observations_seq)
+        likelihood = distribution.log_prob(observations_seq)
         loss_batch_mean = torch.mean(likelihood, dim=1)
         loss = -torch.squeeze(torch.sum(loss_batch_mean, dim=0))
-        return loss, 0, 0
+        return {
+            'loss': loss,
+            'kl_loss': 0,
+            'likelihood_loss':0
+        }
 
-    def decode_observation(self, memory_state, mode='sample'):
+    def decode_observation(self, outputs, mode='sample'):
         """
 
         Args:
@@ -164,7 +181,7 @@ class DeepAR(nn.Module):
         方法调用时不会给额外的输入参数，需在每次forward_prediction和forward_posterior之后将解码所需的信息存储在self里
         """
         observations_normal_dist = torch.distributions.MultivariateNormal(
-            self.state_mu, logsigma2cov(self.state_logsigma)
+            outputs['state_mu'], logsigma2cov(outputs['state_logsigma'])
         )
         if mode == 'dist':
             return observations_normal_dist

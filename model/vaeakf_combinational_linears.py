@@ -106,12 +106,13 @@ class VAEAKFCombinedLinear(nn.Module):
         new_weight_initial_hidden_state = weight_hidden_state
         # endregion
 
-        outputs ={
+        outputs = {
             'initial_prior_mu': initial_prior_mu,
             'initial_prior_logsigma': initial_prior_logsigma,
             'state_mu': state_mu,
             'state_logsigma': state_logsigma,
-            'sampled_state': sampled_state
+            'sampled_state': sampled_state,
+            'external_input_seq_embed': external_input_seq_embed
         }
 
         return outputs, {
@@ -229,9 +230,7 @@ class VAEAKFCombinedLinear(nn.Module):
         state_mu = outputs['state_mu']
         state_logsigma = outputs['state_logsigma']
         weight_initial_hidden_state = memory_state['weight_hidden_state']
-        external_input_seq_embed = self.process_u(external_input_seq)
-        observations_seq_embed = self.process_x(observations_seq)
-
+        external_input_seq_embed = memory_state['external_input_seq_embed']
 
         l, bs, _ = observations_seq.shape
         if self.training:
