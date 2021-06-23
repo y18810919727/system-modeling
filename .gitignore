@@ -123,3 +123,11 @@ ckpt/*.pth
 !/jupyter/Redraw.ipynb
 scripts/tmp/*
 /ckpt/
+/control_cstr/
+/control/figs/
+/control/logs/
+/control/model/
+/data/southeast/
+/log.out
+/typescript
+/tmp/

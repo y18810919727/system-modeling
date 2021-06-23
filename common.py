@@ -189,7 +189,7 @@ def training_loss_visualization(base_dir):
     y_dataset_train_loss = []
     y_dataset_kl_loss = []
     y_dataset_likelihood_loss = []
-    x_dataset_eval_time = []
+    x_dataset_eval_epoch = []
     y_dataset_eval_loss = []
     y_dataset_eval_train_loss = []
     f = open(os.path.join(base_dir, 'log.out'))
@@ -208,7 +208,7 @@ def training_loss_visualization(base_dir):
             # print(y_dataset_eval_train_loss)
             pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
             result = pattern.findall(line)
-            x_dataset_eval_time.append(float(result[0]))
+            x_dataset_eval_epoch.append(float(result[1]))
             y_dataset_eval_loss.append(float(result[2]))
     plt.figure()
     plt.plot(x_dataset_time, y_dataset_train_loss, color='red', label="train_loss")
@@ -224,13 +224,13 @@ def training_loss_visualization(base_dir):
 
     plt.figure()
     fig, ax = plt.subplots(1, 1)
-    plt.plot(x_dataset_eval_time, y_dataset_eval_loss, 'g-', label='eval_loss')
-    plt.plot(x_dataset_eval_time, y_dataset_eval_train_loss, 'r-', label='train_loss')
+    plt.plot(x_dataset_eval_epoch, y_dataset_eval_loss, 'g-', label='eval_loss')
+    plt.plot(x_dataset_eval_epoch, y_dataset_eval_train_loss, 'r-', label='train_loss')
     plt.legend()
-    plt.xlabel('Time(s)')
+    plt.xlabel('epochs')
     ax.set_ylabel('eval_loss')
     ax.set_title('eval_loss')
     plt.savefig(os.path.join(base_dir, 'val_loss.png'))
     plt.close()                     #关闭图像，避免出现wraning
     # plt.plot(x_dataset_time,y_dataset_train_loss,color='red',label="train_loss")
-    # plt.plot(x_dataset_eval_time,y_dataset_eval_loss,color='black',label="loss")
+    # plt.plot(x_dataset_eval_epoch,y_dataset_eval_loss,color='black',label="loss")
