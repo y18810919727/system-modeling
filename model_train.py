@@ -10,11 +10,12 @@ import time
 import shutil
 import sys
 
-
 import pandas
 import pandas as pd
+
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
 from torch.utils.data import DataLoader
+from common import init_network_weights
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import traceback
@@ -24,8 +25,7 @@ from common import detect_download
 
 
 def set_random_seed(seed):
-
-    rand_seed = np.random.randint(0,100000) if seed is None else seed
+    rand_seed = np.random.randint(0, 100000) if seed is None else seed
     print('random seed = {}'.format(rand_seed))
     np.random.seed(rand_seed)
     torch.manual_seed(rand_seed)
@@ -48,23 +48,26 @@ def test_net(model, data_loader, args):
             observation = observation.cuda()
 
         begin_time = time.time()
-        model.forward_posterior(external_input, observation)
-        acc_time += time.time() - begin_time
-        loss, _, _ = model.call_loss()
 
-        acc_loss += float(loss)*external_input.shape[1]
+        # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
+        losses = model.call_loss(external_input, observation)
+        loss = losses['loss']
+        outputs, _ = model.forward_posterior(external_input, observation)
+        acc_time += time.time() - begin_time
+
+        acc_loss += float(loss) * external_input.shape[1]
         acc_items += external_input.shape[1]
 
         acc_rrse += float(common.RRSE(
-            observation, model.decode_observation(mode='sample'))
-        )*external_input.shape[1]
+            observation, model.decode_observation(outputs, mode='sample'))
+        ) * external_input.shape[1]
 
     model.train()
-    return acc_loss/acc_items, acc_rrse/acc_items, acc_time/acc_items
+    return acc_loss / acc_items, acc_rrse / acc_items, acc_time / acc_items
 
 
 def main_train(args, logging):
-    # 设置随即种子，便于时间结果复现
+    # 设置随机种子，便于时间结果复现
     set_random_seed(args.random_seed)
 
     # 根据args的配置生成模型
@@ -75,6 +78,7 @@ def main_train(args, logging):
     if args.use_cuda:
         model = model.cuda()
 
+    init_network_weights(model)
     logging('save dir = {}'.format(os.getcwd()))
     logging(model)
 
@@ -94,27 +98,36 @@ def main_train(args, logging):
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=args.train.schedule.step_size, gamma=args.train.schedule.gamma)
     elif args.train.schedule.type == 'cosine':
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max, eta_min=args.train.schedule.eta_min)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max,
+                                                               eta_min=args.train.schedule.eta_min)
 
     # 构建训练集和验证集
+
+    access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
     if args.dataset.type == 'fake':
         train_df = pandas.read_csv('data/fake_train.csv')
         val_df = pandas.read_csv('data/fake_val.csv')
         train_dataset = FakeDataset(train_df)
         val_dataset = FakeDataset(val_df)
     elif args.dataset.type == 'west':
-        data_urls = pd.read_csv(
-            os.path.join(hydra.utils.get_original_cwd(), 'data/data_url.csv')
+        objects = pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), 'data', 'west', 'data_url.csv')
         )
-        base = os.path.join(hydra.utils.get_original_cwd(), 'data/part')
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/west')
         if not os.path.exists(base):
             os.mkdir(base)
         # 检测数据集路径，如果本地没有数据自动下载
-        data_paths = detect_download(data_urls, base)
+        data_paths = detect_download(objects,
+                                     base,
+                                     'http://oss-cn-beijing.aliyuncs.com',
+                                     'west-part-pressure',
+                                     access_key['AccessKey ID'][0],
+                                     access_key['AccessKey Secret'][0]
+                                     )
         data_csvs = [pd.read_csv(path) for path in data_paths]
         dataset_split = [0.6, 0.2, 0.2]
         # 训练测试集的比例划分
-        train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         train_dataset = WesternDataset(data_csvs[:train_size],
                                        args.history_length + args.forward_length, step=args.dataset.dataset_window,
                                        dilation=args.dataset.dilation)
@@ -125,21 +138,30 @@ def main_train(args, logging):
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
         data_csvs = [pd.read_csv(os.path.join(data_dir, file)) for file in os.listdir(data_dir)]
         dataset_split = [0.6, 0.2, 0.2]
-        train_size, val_size, test_size = [int(len(data_csvs)*ratio) for ratio in dataset_split]
+        train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         train_dataset = WesternConcentrationDataset(data_csvs[:train_size],
-                                       args.history_length + args.forward_length, step=args.dataset.dataset_window,
-                                       dilation=args.dataset.dilation)
+                                                    args.history_length + args.forward_length,
+                                                    step=args.dataset.dataset_window,
+                                                    dilation=args.dataset.dilation)
         val_dataset = WesternConcentrationDataset(data_csvs[train_size:train_size + val_size],
-                                     args.history_length + args.forward_length, step=args.dataset.dataset_window,
-                                     dilation=args.dataset.dilation)
+                                                  args.history_length + args.forward_length,
+                                                  step=args.dataset.dataset_window,
+                                                  dilation=args.dataset.dilation)
     elif args.dataset.type.startswith('cstr'):
-        data_urls = pd.read_csv(
+        objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/cstr/data_url.csv')
         )
         base = os.path.join(hydra.utils.get_original_cwd(), 'data/cstr')
         if not os.path.exists(base):
             os.mkdir(base)
-        _ = detect_download(data_urls, base)
+        # _ = detect_download(objects, base)
+        _ = detect_download(objects,
+                            base,
+                            'http://oss-cn-beijing.aliyuncs.com',
+                            'io-system-data',
+                            access_key['AccessKey ID'][0],
+                            access_key['AccessKey Secret'][0]
+                            )
         train_dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
@@ -148,13 +170,19 @@ def main_train(args, logging):
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type.startswith('winding'):
-        data_urls = pd.read_csv(
+        objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/winding/data_url.csv')
         )
         base = os.path.join(hydra.utils.get_original_cwd(), 'data/winding')
         if not os.path.exists(base):
             os.mkdir(base)
-        _ = detect_download(data_urls, base)
+        _ = detect_download(objects,
+                            base,
+                            'http://oss-cn-beijing.aliyuncs.com',
+                            'io-system-data',
+                            access_key['AccessKey ID'][0],
+                            access_key['AccessKey Secret'][0]
+                            )
         train_dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
@@ -162,10 +190,20 @@ def main_train(args, logging):
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
 
+    elif args.dataset.type.startswith('southeast'):
+
+        from southeast_ore_dataset import SoutheastOreDataset
+        dataset_split = [0.6, 0.2, 0.2]
+        train_dataset, val_dataset, _ = SoutheastOreDataset(
+            data_dir=hydra.utils.get_original_cwd(),
+            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
+            offline_data=args.dataset.offline_data
+        ).get_split_dataset(dataset_split)
+
     else:
         raise NotImplementedError
 
-    #构建dataloader
+    # 构建dataloader
     train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size,
                               shuffle=True, num_workers=args.train.num_workers)
     val_loader = DataLoader(val_dataset, batch_size=args.train.batch_size, shuffle=False,
@@ -196,12 +234,23 @@ def main_train(args, logging):
                 observation = observation.cuda()
 
             t2 = time.time()
-            # 模型forward进行隐变量后验估计
-            model.forward_posterior(external_input, observation)
+
+            # region Modifying the code in training phase
+            # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
+            # # 模型forward进行隐变量后验估计
+            # Delete
+            # ----------------------------------------
+            # model.forward_posterior(external_input, observation)
+            # 计算loss
+            # loss, kl_loss, likelihood_loss = model.call_loss()
+            # ----------------------------------------
+            losses = model.call_loss(external_input, observation)
+            loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
+            # endregion
+            # ----------------------------------------
+
             t3 = time.time()
 
-            # 计算loss
-            loss, kl_loss, likelihood_loss = model.call_loss()
             acc_loss += float(loss) * external_input.shape[1]
             acc_kl_loss += float(kl_loss) * external_input.shape[1]
             acc_likelihood_loss += float(likelihood_loss) * external_input.shape[1]
@@ -212,11 +261,12 @@ def main_train(args, logging):
             logging(
                 'epoch-round = {}-{} with loss = {:.4f} kl_loss = {:.4f}  likelihood_loss = {:.4f} '
                 'prepare time {:.4f} forward time {:.4f}, forward percent{:.4f}%'.format(
-                    epoch, i, float(loss), float(kl_loss), float(likelihood_loss), t2-t1, t3-t2, 100*(t3-t2)/(t3-t1))
+                    epoch, i, float(loss), float(kl_loss), float(likelihood_loss), t2 - t1, t3 - t2,
+                                                                                   100 * (t3 - t2) / (t3 - t1))
             )
 
         logging('epoch = {} with train_loss = {:.4f} with kl_loss = {:.4f} with likelihood_loss = {:.4f}'.format(
-            epoch, float(acc_loss/acc_items), float(acc_kl_loss/acc_items), float(acc_likelihood_loss/acc_items)
+            epoch, float(acc_loss / acc_items), float(acc_kl_loss / acc_items), float(acc_likelihood_loss / acc_items)
         ))
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
@@ -254,7 +304,6 @@ def main_train(args, logging):
 
 @hydra.main(config_path='config', config_name="config.yaml")
 def main_app(args: DictConfig) -> None:
-
     from common import SimpleLogger, training_loss_visualization
 
     # Model Training
@@ -285,9 +334,3 @@ def main_app(args: DictConfig) -> None:
 
 if __name__ == '__main__':
     main_app()
-
-
-
-
-
-

@@ -41,12 +41,12 @@ class VRNN(nn.Module):
         self.prior_gauss = DBlock(k+k, 3*k, state_size)
         self.decoder = DBlock(2*k, 3*k, observations_size)
 
-        self.state_mu = None
-        self.state_logsigma = None
-        self.external_input_seq = None
-        self.observations_seq = None
-        self.initial_prior_mu, self.initial_prior_logsigma = None, None
-        self.sampled_state = None
+        # self.state_mu = None
+        # self.state_logsigma = None
+        # self.external_input_seq = None
+        # self.observations_seq = None
+        # self.initial_prior_mu, self.initial_prior_logsigma = None, None
+        # self.sampled_state = None
         self.weight_initial_hidden_state = None
         self.h_seq = None
         self.external_input_seq_embed = None
@@ -66,32 +66,27 @@ class VRNN(nn.Module):
         Returns:
 
         """
-        self.memory_state = memory_state
-        self.external_input_seq = external_input_seq
-        self.observations_seq = observations_seq
+        external_input_seq_embed = self.process_u(external_input_seq)
+        observations_seq_embed = self.process_x(observations_seq)
 
         l, batch_size, _ = external_input_seq.size()
 
-        # 预处理编码
-        self.external_input_seq_embed = self.process_u(self.external_input_seq)
-        self.observations_seq_embed = self.process_x(self.observations_seq)
-
         # 构建rnn网络的初始隐状态和h，如果memory_state里有，从memory_state里拿
         h, rnn_hidden_state = (
-            zeros_like_with_shape(self.external_input_seq, (batch_size, self.k)),
-            zeros_like_with_shape(self.external_input_seq, (self.num_layers, batch_size, self.k))
+            zeros_like_with_shape(external_input_seq, (batch_size, self.k)),
+            zeros_like_with_shape(external_input_seq, (self.num_layers, batch_size, self.k))
         ) if memory_state is None else (memory_state['hn'], memory_state['rnn_hidden'])
 
-        self.state_mu = []
-        self.state_logsigma = []
-        self.sampled_state = []
-        self.h_seq = [h]
-        self.rnn_hidden_state_seq = [rnn_hidden_state.transpose(1, 0)]
+        state_mu = []
+        state_logsigma = []
+        sampled_state = []
+        h_seq = [h]
+        rnn_hidden_state_seq = [rnn_hidden_state.transpose(1, 0)]
         for t in range(l):
 
             # 估计每一时刻t下，z的后验分布
             z_t_mean, z_t_logsigma = self.posterior_gauss(
-                torch.cat([self.observations_seq_embed[t], self.external_input_seq_embed[t], h], dim=-1)
+                torch.cat([observations_seq_embed[t], external_input_seq_embed[t], h], dim=-1)
             )
             # 从分布做采样得到z_t
             z_t = normal_differential_sample(
@@ -100,25 +95,33 @@ class VRNN(nn.Module):
 
             #更新rnn隐状态和h
             output, rnn_hidden_state = self.rnn(torch.cat(
-                [self.observations_seq_embed[t], self.external_input_seq_embed[t], self.process_z(z_t)], dim=-1
+                [observations_seq_embed[t], external_input_seq_embed[t], self.process_z(z_t)], dim=-1
             ).unsqueeze(dim=0), rnn_hidden_state)
             h = output[0]
 
             # 记录第t时刻的z的分布，z的采样，h，rnn隐状态
-            self.state_mu.append(z_t_mean)
-            self.state_logsigma.append(z_t_logsigma)
-            self.sampled_state.append(z_t)
-            self.h_seq.append(h)
-            self.rnn_hidden_state_seq.append(rnn_hidden_state.contiguous().transpose(1, 0))
+            state_mu.append(z_t_mean)
+            state_logsigma.append(z_t_logsigma)
+            sampled_state.append(z_t)
+            h_seq.append(h)
+            rnn_hidden_state_seq.append(rnn_hidden_state.contiguous().transpose(1, 0))
 
         # 将list stack起来，构成torch的tensor
-        self.state_mu = torch.stack(self.state_mu, dim=0)
-        self.state_logsigma = torch.stack(self.state_logsigma, dim=0)
-        self.sampled_state = torch.stack(self.sampled_state, dim=0)
-        self.h_seq = torch.stack(self.h_seq, dim=0)
-        self.rnn_hidden_state_seq = torch.stack(self.rnn_hidden_state_seq, dim=0)
+        state_mu = torch.stack(state_mu, dim=0)
+        state_logsigma = torch.stack(state_logsigma, dim=0)
+        sampled_state = torch.stack(sampled_state, dim=0)
+        h_seq = torch.stack(h_seq, dim=0)
+        rnn_hidden_state_seq = torch.stack(rnn_hidden_state_seq, dim=0)
 
-        return self.state_mu, self.state_logsigma, {'hn': h, 'rnn_hidden': rnn_hidden_state}
+        outputs = {
+            'state_mu': state_mu,
+            'state_logsigma': state_logsigma,
+            'sampled_state': sampled_state,
+            'h_seq': h_seq,
+            'external_input_seq_embed': external_input_seq_embed,
+            'rnn_hidden_state_seq': rnn_hidden_state_seq
+        }
+        return outputs, {'hn': h, 'rnn_hidden': rnn_hidden_state}
 
     def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
         """
@@ -133,26 +136,24 @@ class VRNN(nn.Module):
         Returns:
 
         """
-        self.memory_state = memory_state
-        self.external_input_seq = external_input_seq
 
         l, batch_size, _ = external_input_seq.size()
 
         h, rnn_hidden_state = (
-            zeros_like_with_shape(self.external_input_seq, (batch_size, self.k)),
-            zeros_like_with_shape(self.external_input_seq, (self.num_layers, batch_size, self.k))
+            zeros_like_with_shape(external_input_seq, (batch_size, self.k)),
+            zeros_like_with_shape(external_input_seq, (self.num_layers, batch_size, self.k))
         ) if memory_state is None else (memory_state['hn'], memory_state['rnn_hidden'])
 
-        self.external_input_seq_embed = self.process_u(self.external_input_seq)
+        external_input_seq_embed = self.process_u(external_input_seq)
 
-        self.sampled_state = []
-        self.h_seq = [h]
-        self.rnn_hidden_state_seq = [rnn_hidden_state.transpose(1, 0)]
+        sampled_state = []
+        h_seq = [h]
+        rnn_hidden_state_seq = [rnn_hidden_state.transpose(1, 0)]
 
         for t in range(l):
 
             z_t_mean, z_t_logsigma = self.prior_gauss(
-                torch.cat([self.external_input_seq_embed[t], h], dim=-1)
+                torch.cat([external_input_seq_embed[t], h], dim=-1)
             )
             z_t = normal_differential_sample(
                 MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
@@ -165,19 +166,23 @@ class VRNN(nn.Module):
                 MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
             )
             output, rnn_hidden_state = self.rnn(torch.cat(
-                [self.process_x(x_t), self.external_input_seq_embed[t], z_t_embed], dim=-1
+                [self.process_x(x_t), external_input_seq_embed[t], z_t_embed], dim=-1
             ).unsqueeze(dim=0), rnn_hidden_state)
             h = output[0]
 
-            self.sampled_state.append(z_t)
-            self.h_seq.append(h)
-            self.rnn_hidden_state_seq.append(rnn_hidden_state.contiguous().transpose(1, 0))
+            sampled_state.append(z_t)
+            h_seq.append(h)
+            rnn_hidden_state_seq.append(rnn_hidden_state.contiguous().transpose(1, 0))
 
-        self.sampled_state = torch.stack(self.sampled_state, dim=0)
-        self.h_seq = torch.stack(self.h_seq, dim=0)  # with shape (l+1, bs, k)
-        self.rnn_hidden_state_seq = torch.stack(self.rnn_hidden_state_seq, dim=0)
+        sampled_state = torch.stack(sampled_state, dim=0)
+        h_seq = torch.stack(h_seq, dim=0)  # with shape (l+1, bs, k)
+        rnn_hidden_state_seq = torch.stack(rnn_hidden_state_seq, dim=0)
 
-        observations_dist = self.decode_observation(mode='dist')
+        observations_dist = self.decode_observation(
+            {'sampled_state': sampled_state,
+             'h_seq': h_seq},
+            mode='dist'
+        )
 
         # 对观测分布采样并更新后验lstm隐状态
         if max_prob:
@@ -185,22 +190,36 @@ class VRNN(nn.Module):
         else:
             observations_sample = normal_differential_sample(observations_dist)
 
-        return observations_dist, observations_sample, {'hn': h, 'rnn_hidden': rnn_hidden_state}
+        outputs = {
+            'sampled_state': sampled_state,
+            'h_seq': h_seq,
+            'rnn_hidden_state_seq': rnn_hidden_state_seq,
+            'predicted_dist': observations_dist,
+            'predicted_seq': observations_sample
+        }
+        return outputs, {'hn': h, 'rnn_hidden': rnn_hidden_state}
 
-    def call_loss(self):
+    def call_loss(self, external_input_seq, observations_seq, memory_state=None):
         """
         此方法仅运行在调用完forward_posterior之后
         Returns:
         """
+        outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
 
-        l, batch_size, _ = self.observations_seq.shape
+        h_seq = outputs['h_seq']
+        rnn_hidden_state_seq = outputs['rnn_hidden_state_seq']
+        state_mu = outputs['state_mu']
+        state_logsigma = outputs['state_logsigma']
+        external_input_seq_embed = outputs['external_input_seq_embed']
+
+        l, batch_size, _ = observations_seq.shape
 
         D = self.D if self.training else 1
 
         kl_sum = 0
 
-        predicted_h = self.h_seq[:-1]  # 删掉h_seq中的最后一个
-        rnn_hidden_state_seq = self.rnn_hidden_state_seq[:-1]  # (length, bs, num_layers, k)
+        predicted_h = h_seq[:-1]  # 删掉h_seq中的最后一个
+        rnn_hidden_state_seq = rnn_hidden_state_seq[:-1]  # (length, bs, num_layers, k)
 
         # 此处为latent overshooting，d为over_shooting的距离，这部分代码思维强度有点深，需要多看几遍。
         for d in range(D):
@@ -208,12 +227,12 @@ class VRNN(nn.Module):
 
             # 预测的隐变量先验分布
             prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-                torch.cat([self.external_input_seq_embed[-length:], predicted_h], dim=-1)
+                torch.cat([external_input_seq_embed[-length:], predicted_h], dim=-1)
             )
             # 计算loss中的kl散度项
             kl_sum += multivariate_normal_kl_loss(
-                self.state_mu[-length:],
-                logsigma2cov(self.state_logsigma[-length:]),
+                state_mu[-length:],
+                logsigma2cov(state_logsigma[-length:]),
                 prior_z_t_seq_mean,
                 logsigma2cov(prior_z_t_seq_logsigma)
             )
@@ -237,7 +256,7 @@ class VRNN(nn.Module):
                     torch.cat(
                         [
                             self.process_x(x_t_seq),
-                            self.external_input_seq_embed[-length:],
+                            external_input_seq_embed[-length:],
                             z_t_seq_embed
                         ], dim=-1
                     )
@@ -250,7 +269,6 @@ class VRNN(nn.Module):
 
         kl_sum = kl_sum/D
 
-
         # prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
         #     torch.cat([self.external_input_seq_embed, self.h_seq[:-1]], dim=-1)
         # )
@@ -262,13 +280,17 @@ class VRNN(nn.Module):
         #     logsigma2cov(prior_z_t_seq_logsigma)
         # )
         # 对h解码得到observation的generative分布
-        observations_normal_dist = self.decode_observation(mode='dist')
+        observations_normal_dist = self.decode_observation(outputs, mode='dist')
         # 计算loss的第二部分：观测数据的重构loss
-        generative_likelihood = torch.sum(observations_normal_dist.log_prob(self.observations_seq))
+        generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
 
-        return (kl_sum - generative_likelihood)/batch_size, kl_sum/batch_size, -generative_likelihood/batch_size
+        return {
+            'loss': (kl_sum - generative_likelihood)/batch_size,
+            'kl_loss': kl_sum/batch_size,
+            'likelihood_loss': -generative_likelihood/batch_size
+        }
 
-    def decode_observation(self, mode='sample'):
+    def decode_observation(self, outputs, mode='sample'):
         """
 
         Args:
@@ -279,7 +301,9 @@ class VRNN(nn.Module):
 
         """
         mean, logsigma = self.decoder(
-            torch.cat([self.process_z(self.sampled_state), self.h_seq[:-1]], dim=-1)
+            torch.cat([
+                self.process_z(outputs['sampled_state']), outputs['h_seq'][:-1]
+            ], dim=-1)
         )
         observations_normal_dist = MultivariateNormal(
             mean, logsigma2cov(logsigma)

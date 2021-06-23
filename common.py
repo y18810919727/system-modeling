@@ -8,6 +8,7 @@ import json
 
 import torch
 import logging
+from torch import nn
 
 
 class SimpleLogger(object):
@@ -135,37 +136,53 @@ def normal_interval(dist, e):
            dist.loc + e * torch.sqrt(dist.covariance_matrix.diagonal(dim1=-2, dim2=-1))
 
 
+def cal_time(fn):
+    """计算性能的修饰器"""
+    def wrapper(*args,**kwargs):
+        starTime = time.time()
+        f = fn(*args,**kwargs)
+        endTime = time.time()
+        print('%s() runtime:%s ms' % (fn.__name__, 1000*(endTime - starTime)))
+        return f
+    return wrapper
 
-def detect_download(data_urls, base):
-    import pandas as pd
-    data_paths = []
+def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, accessKey_secret):
 
-    def download(url, path):
+    import oss2
+
+    def download(bucket, name, path):
         """
-        数据存储在了阿里云oss上
+        Data is stored in Aliyun OSS
         Args:
-            url:
-            path:
-
-        Returns:
-
+            bucket:
+            name: name in oss
+            path: path of the downloaded local file
+        Returns: path if successful, else None
         """
         import urllib
-        print("Downloading file %s from %s:" % (path, url))
+        print("Downloading file %s:" % name)
         try:
-            urllib.request.urlretrieve(url, filename=os.path.join( path))
+            # urllib.request.urlretrieve(url, filename=os.path.join( path))
+            bucket.get_object_to_file(name, path)
             return path
         except Exception as e:
-            print("Error occurred when downloading file %s from %s, error message :" % (path, url))
+            print("Error occurred when downloading file %s from %s, error message :" % (path, bucket))
             return None
-    for name, url in zip(data_urls['object'], data_urls['url']):
+    auth = oss2.Auth(accessKey_id, accessKey_secret)
+    bucket = oss2.Bucket(auth, oss_endpoint, bucket_name)
+    data_paths = []
+    for name in objects['object']:
         path = os.path.join(base, name)
-        if not os.path.exists(path) and not download(url, path):
-            pass
-        else:
+        if os.path.exists(path) or download(bucket, name, path):
             data_paths.append(path)
+
     return data_paths
 
+def init_network_weights(net, std=0.1):
+    for m in net.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, mean=0, std=std)
+            nn.init.constant_(m.bias, val=0)
 
 def merge_first_two_dims(tensor):
     size = tensor.size()

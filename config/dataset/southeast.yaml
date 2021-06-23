@@ -1,0 +1,11 @@
+# @package _group_
+type: southeast
+input_size: 2
+observation_size: 1
+in_length: 30
+out_length: 10
+window_step: 5
+offline_data: yes
+in_columns: ["out_f", "pressure"]
+out_column: "out_c"
+target_names: ['Output_Concentration']

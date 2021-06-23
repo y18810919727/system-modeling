@@ -131,3 +131,8 @@ scripts/tmp/*
 /log.out
 /typescript
 /tmp/
+
+/data/south_con/*.csv
+!/data/south_con/*urls.csv
+!/data/winding/data_url.csv
+!/data/AccessKey.csv
