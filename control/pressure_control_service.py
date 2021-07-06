@@ -61,19 +61,16 @@ def cem_planning():     # Cem规划控制
         args = controller_info['args']
 
         begin_time = time.perf_counter()
-        # input_dim: 1, output_dim: 4
-        #num_samples = args.length
-        cem = CEMPlanning(1, 4, args.length, num_samples=args.num_samples, max_iters=args.max_iters, device=controller_info['device'], time=systime)
+        # input_dim: 2, output_dim: 1
+        cem = CEMPlanning(args.set_value, args.input_dim, args.output_dim, args.length, num_samples=args.num_samples, max_iters=args.max_iters, device=controller_info['device'], time=systime)
         new_dist, action_f = cem.solve(controller_info['model'], memory_state, last_seq_distribution=controller_info['last_seq_distribution'])
         # action_f 为cem loss最小的动作序列的均值
         controller_info['last_seq_distribution'] = new_dist
-        action_sample = action_f.detach().cpu().numpy()  # 从cem求得控制序列采样，并取第一个
+        action_sample = [action_f[x].detach().cpu().numpy() for x in range(0, len(action_f))]   # action_f转numpy
         time_used = time.perf_counter() - begin_time
 
-        # 反归一化底流流量, 对照一下出料流量是scale的哪一列
-        action_sample_unscale = controller_info['scale'].unscale_scalar(action_sample, pos=-1)
         response_dict = {
-            'planning_v_out': action_sample_unscale.tolist(),
+            'planning_action': [action_sample[x].tolist() for x in range(0, len(action_sample))],   # action_f转list //v_out
             'time_usage': '{}s'.format(time_used),
         }
         response_dict.update(get_basic_info())
@@ -107,20 +104,13 @@ def update():      # 更新隐状态
         new_monitoring_data = json.loads(new_monitoring_data)
         begin_time = time.perf_counter()    # 当前计算机系统时间
 
-        monitoring_data_scale = controller_info['scale'].scale_array(np.array(new_monitoring_data, dtype=float))  # 数据归一化
-        # monitoring_data_scale = monitoring_data_scale.tolist()
-        v_out = monitoring_data_scale[-1]     # 底流流量在倒数第一个位置，输入
-        observation = monitoring_data_scale[:-1]     # 输出
-
-        # region TODO: 目前的模型是8输入，1输出, 现在为了测试先把最后一个维度当作输出，未来需要替换为下面两行
-        #
-        # external_input = torch.Tensor([v_out]).to(controller_info['device']).reshape(1, 1, -1)
-        # observations_seq = torch.Tensor(observation).to(controller_info['device']).reshape(1, 1, -1)
-        external_input = torch.Tensor([v_out]).to(controller_info['device']).reshape(1, 1, -1)  # 重组、降维
+        action = np.array(new_monitoring_data[-1])
+        observation = np.array(new_monitoring_data[0])
+        external_input = torch.Tensor(action).to(controller_info['device']).reshape(1, 1, -1)  # 重组、降维
         observations_seq = torch.Tensor(observation).to(controller_info['device']).reshape(1, 1, -1)
         # endregion
 
-        _, _, new_memory_state = controller_info['model'].forward_posterior(
+        _, new_memory_state = controller_info['model'].forward_posterior(
             external_input, observations_seq, memory_state=memory_state
         )
 
@@ -150,14 +140,9 @@ def control_service_start(args):
     controller_info['device'] = device
     controller_info['model'] = model
     controller_info['args'] = args
-    # 修改为 1输入 - 4输出   即 9 -> 5
-    # [pressure, c_out, v_in, c_in, v_out]['17', '11', '16', '4', '14']
     # controller_info['scale'] = Scale(mean=np.zeros(5), std=np.ones(5))  # 此处需要利用数据集进行估计，应保持和训练时的归一化一致
     # df_scale    [c_out, v_out, c_in, v_in, pressure]
-    df_scale = pd.read_csv(os.path.join(os.getcwd(), "control/df_scale_cstr.csv"), encoding='utf-8').values   # dataframa 转array
-    mean = np.array(df_scale[:, 1], dtype='float64')
-    std = np.array(df_scale[:, 2], dtype='float64')
-    controller_info['scale'] = Scale(mean, std)
+
     app.run(
         host='0.0.0.0',
         port=args.port,
@@ -168,13 +153,16 @@ def control_service_start(args):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser('Pressure Control Test')
-    parser.add_argument('--planning',  type=str, default='control/model/test_west.pkl', help="ckpt path of planning model.")
+    parser.add_argument('--planning',  type=str, default='control/model/cstr_vrnn_5.pkl', help="ckpt path of planning model.")
     parser.add_argument('--cuda',  type=int, default=3, help="GPU ID, -1 for CPU")
     parser.add_argument('--length',  type=int, default=50, help="The length of optimized sequence for planning")
     parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
     parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
     parser.add_argument('--max_iters',  type=int, default=50, help="The number of iters in CEM planning")
-    parser.add_argument('--port',  type=int, default=6009, help="The number of iters in CEM planning")
+    parser.add_argument('--input_dim', type=int, default=1, help='The input_dim of model')
+    parser.add_argument('--output_dim', type=int, default=2, help='The output_dim of model')
+    parser.add_argument('--set_value', type=list, default=[0.8,0.1,0.5], help='The set_value of control')  # 0.8[number of output_dim; number of input_dim]
+    parser.add_argument('--port',  type=int, default=6010, help="The number of iters in CEM planning")
     parser.add_argument('--debug', action='store_true', default=False)
     args = parser.parse_args()
     control_service_start(args)

@@ -281,6 +281,7 @@ def main_train(args, logging):
                 ckpt['model'] = model.state_dict()
                 ckpt['epoch'] = epoch + 1
                 torch.save(ckpt, os.path.join('./', 'best.pth'))
+                torch.save(model, os.path.join('./', 'control.pkl'))
                 logging('Save ckpt at epoch = {}'.format(epoch))
 
             if epoch - best_dev_epoch > args.train.max_epochs_stop:
