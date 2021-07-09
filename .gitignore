@@ -126,7 +126,7 @@ scripts/tmp/*
 /control_cstr/
 /control/figs/
 /control/logs/
-/control/model/
+/control/model/*.pkl
 /data/southeast/
 /log.out
 /typescript
@@ -136,3 +136,4 @@ scripts/tmp/*
 !/data/south_con/*urls.csv
 !/data/winding/data_url.csv
 !/data/AccessKey.csv
+!/control/model/cstr_vrnn_5_cpu.pkl
