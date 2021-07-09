@@ -145,10 +145,12 @@ def control_service_start(args: DictConfig):
     # sys.stderr = open('control/logs/service_log.out', 'w')
 
     # torch.multiprocessing.set_start_method('spawn')
+    if args.cuda >= torch.cuda.device_count():
+        raise RuntimeError('cuda %s invalid device ordinal' % args.cuda)
+
     device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu")
     model_path = os.path.join(hydra.utils.get_original_cwd(), 'control', 'model', args.model)
-    # model = torch.load(model_path, map_location={'cuda:0': 'cuda:{}'.format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu"})
-    model = torch.load(model_path)
+    model = torch.load(model_path, map_location=device)
     model = model.to(device)
     model.eval()
 

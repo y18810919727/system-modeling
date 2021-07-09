@@ -5,4 +5,4 @@ WORKDIR /app
 
 EXPOSE 6010
 ENTRYPOINT ["sh", "-c", "python control/control_service.py"]
-CMD ["--cuda", "2"]
+CMD ["cuda=2"]
