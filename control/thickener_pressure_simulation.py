@@ -114,9 +114,15 @@ class ThickenerPressureSimulation:
                 plt.xlabel("time(minute)")
                 plt.ylabel("control_value")
                 plt.legend()
-                plt.savefig(
-                    os.path.join(self.figs_path, 'simulation_'+pos+'_'+str(self.border)+'_.png')
-                )
+                try:
+                    # TODO: 此处string + int 会 报错
+                    plt.savefig(
+                        os.path.join(self.figs_path, 'simulation_'+pos+'_'+str(self.border)+'_.png')
+                    )
+                except Exception as e:
+                    # import pdb
+                    # pdb.set_trace()
+                    raise e
                 plt.close()
 
             # plt.plot(range(self.border, self.simulation_time),[self.set_value[pos] for x in range(self.border, self.simulation_time)], label='set_value')

@@ -43,7 +43,7 @@ def test_request():
         return jsonify('Received!')
 
 
-@app.route('/cem-planning', methods=['POST'])
+@app.route('/planning', methods=['POST'])
 def cem_planning():     # Cem规划控制
     if request.method == 'POST':
 
@@ -52,8 +52,10 @@ def cem_planning():     # Cem规划控制
         memory_state = json.loads(memory_state)
         memory_state = dict_to_Tensor(memory_state, device=controller_info['device'])
 
-
-        systime = request.form['time']
+        if 'time' in request.form.keys():
+            systime = request.form['time']
+        else:
+            systime = -1
         args = controller_info['args']
 
         begin_time = time.perf_counter()
@@ -117,11 +119,16 @@ def update():      # 更新隐状态
         new_monitoring_data = json.loads(new_monitoring_data)
         begin_time = time.perf_counter()    # 当前计算机系统时间
 
-        action = np.array(new_monitoring_data[-1])
-        observation = np.array(new_monitoring_data[0])
-        external_input = torch.Tensor(action).to(controller_info['device']).reshape(1, 1, -1)  # 重组、降维
-        observations_seq = torch.Tensor(observation).to(controller_info['device']).reshape(1, 1, -1)
-        # endregion
+        # action = np.array(new_monitoring_data[-1])
+
+        def list2d2tensor(data_list, device):
+            return torch.FloatTensor(data_list).to(device)
+        observations_seq = list2d2tensor(
+            [x[0] for x in new_monitoring_data], controller_info['device']
+        ).unsqueeze(dim=1)  # (len, bs=1, input_dim)
+        external_input = list2d2tensor(
+            [x[1] for x in new_monitoring_data], controller_info['device']
+        ).unsqueeze(dim=1)  # (len, bs=1, output_dim)
 
         _, new_memory_state = controller_info['model'].forward_posterior(
             external_input, observations_seq, memory_state=memory_state
@@ -158,7 +165,7 @@ def control_service_start(args: DictConfig):
     controller_info['device'] = device
     controller_info['model'] = model
     controller_info['args'] = args
-    DictConfig2dict(controller_info['args'])
+    print(args)
     # controller_info['scale'] = Scale(mean=np.zeros(5), std=np.ones(5))  # 此处需要利用数据集进行估计，应保持和训练时的归一化一致
     # df_scale    [c_out, v_out, c_in, v_in, pressure]
 

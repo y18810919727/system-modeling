@@ -41,7 +41,7 @@ def get_ob_list(cur_ob_dict):
         cur_ob_dict['observation'],
         cur_ob_dict['action'],
     ]
-    return cur_ob
+    return [cur_ob]  # 实际情况监测数据可能是在时序上多组的
 
 def main(args, logging):
     device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() else "cpu")
@@ -68,7 +68,7 @@ def main(args, logging):
     for _ in range(args.R):
 
         # region 请求执行cem-planning
-        resp = requests.post("http://{}:{}/cem-planning".format(args.ip, str(args.port)), data={
+        resp = requests.post("http://{}:{}/planning".format(args.ip, str(args.port)), data={
             'memory_state': memory_state_json,
             'time': _
         })
