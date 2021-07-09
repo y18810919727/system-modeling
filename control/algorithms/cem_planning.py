@@ -67,6 +67,7 @@ class CEMPlanning:
         obs_set_value = obs_set_value.expand(self.num_samples, self.length, self.output_dim).to(self.device).contiguous()  #
         obs = obs.permute(2, 0, 1).contiguous()
         obs_set_value = obs_set_value.permute(2, 0, 1).contiguous()
+        # TODO: 不许出现for循环
         mse_list = [MSE(obs_set_value[x].unsqueeze(-1), obs[x].unsqueeze(-1)).mean(dim=1) for x in range(0, self.output_dim)]
         loss = 0
         for i in range(0,self.output_dim):
@@ -106,6 +107,7 @@ class CEMPlanning:
         else:
 
             k = 10
+            # TODO：没用的代码删掉
             action_list = []
             pressure_list = []
             for i in range(self.max_iters):
@@ -115,6 +117,7 @@ class CEMPlanning:
                 """
                 action_j = last_seq_distribution.sample((self.num_samples, ))     # tensor.shape
                 action_j = action_j.permute(1, 0, 2).contiguous()   # model.forward_prediction(([len, batch_size, input_size]), memory_state)
+                # TODO : 不同的模型memory_state定义不同，需要兼容
                 memory_state['hn'] = memory_state['hn'].expand(self.num_samples, memory_state['hn'].shape[-1]).contiguous()
                 memory_state['rnn_hidden'] = memory_state['rnn_hidden'].expand(memory_state['rnn_hidden'].shape[0], self.num_samples, memory_state['rnn_hidden'].shape[-1]).contiguous()
                 output, _ = model.forward_prediction(action_j, max_prob=True, memory_state=memory_state)
@@ -130,6 +133,7 @@ class CEMPlanning:
                 mean = action_k.mean(dim=0)
                 scale = action_k.std(dim=0)
                 new_seq_distribution = Normal(mean, scale)
+                # TODO: 不许出现for循环，直接action_k[0].mean(dim=-2)就行
                 action_f = [action_k[0].permute(1, 0)[x].mean() for x in range(0, self.input_dim)]
                 '''反归一化模块
                 action_list.append(float(action_k[0].mean())*self.s_std[-1]+self.s_mean[-1])   # 反归一化

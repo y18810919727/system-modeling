@@ -1,30 +1,23 @@
 #!/usr/bin/python
 # -*- coding:utf8 -*-
 import numpy as np
-import math
 import os
 import json
 
 
 import torch
-import pandas as pd
-from flask import Flask
-import getopt
-from flask import request
 from flask import Flask, jsonify, request
 import sys
 sys.path.append('..')
 sys.path.append(os.getcwd())
-from control.cem_planning import CEMPlanning
-from control.scale import Scale
+from control.algorithms.cem_planning import CEMPlanning
+from control.algorithms.Test import TestController
 import time
 from control.utils import dict_to_Tensor, my_JSON_serializable, DictConfig2dict
-import argparse
 import hydra
-from omegaconf import DictConfig, OmegaConf
-app = Flask(__name__)
+from omegaconf import DictConfig
 
-import logging
+app = Flask(__name__)
 
 # 此处load模型
 controller_info = {
@@ -74,17 +67,23 @@ def cem_planning():     # Cem规划控制
         if args.algorithm.name == 'cem':
             cem_config = args.algorithm
             planner = CEMPlanning(set_point, args.input_dim, args.output_dim, cem_config.length, num_samples=cem_config.num_samples, max_iters=cem_config.max_iters, device=controller_info['device'], time=systime)
+        elif args.algorithm.name == 'test':
+            test_config = args.algorithm
+            planner = TestController(set_point, args.input_dim, args.output_dim,
+                                     length=int(test_config.default_action),
+                                     default_action=float(test_config.default_action))
         else:
             raise NotImplementedError
 
         new_dist, action_f = planner.solve(controller_info['model'], memory_state, last_seq_distribution=controller_info['last_seq_distribution'])
         # action_f 为cem loss最小的动作序列的均值
         controller_info['last_seq_distribution'] = new_dist
-        action_sample = [action_f[x].detach().cpu().numpy() for x in range(0, len(action_f))]   # action_f转numpy
+        # TODO: 不要出现for循环
+        action_sample = [float(action_f[x]) for x in range(0, len(action_f))]   # action_f转numpy
         time_used = time.perf_counter() - begin_time
 
         response_dict = {
-            'planning_action': [action_sample[x].tolist() for x in range(0, len(action_sample))],   # action_f转list //v_out
+            'planning_action': action_sample,   # action_f转list //v_out
             'time_usage': '{}s'.format(time_used),
         }
         response_dict.update(get_basic_info())
