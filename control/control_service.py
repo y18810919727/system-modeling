@@ -18,8 +18,10 @@ sys.path.append(os.getcwd())
 from control.cem_planning import CEMPlanning
 from control.scale import Scale
 import time
-from control.utils import dict_to_Tensor, my_JSON_serializable
+from control.utils import dict_to_Tensor, my_JSON_serializable, DictConfig2dict
 import argparse
+import hydra
+from omegaconf import DictConfig, OmegaConf
 app = Flask(__name__)
 
 import logging
@@ -38,7 +40,7 @@ def get_basic_info():
     global controller_info
     return {
         'device': str(controller_info['device']),
-        'model_config': controller_info['args'].__dict__
+        'model_config': DictConfig2dict(controller_info['args'])
     }
 
 
@@ -57,13 +59,25 @@ def cem_planning():     # Cem规划控制
         memory_state = json.loads(memory_state)
         memory_state = dict_to_Tensor(memory_state, device=controller_info['device'])
 
+
         systime = request.form['time']
         args = controller_info['args']
 
         begin_time = time.perf_counter()
         # input_dim: 2, output_dim: 1
-        cem = CEMPlanning(args.set_value, args.input_dim, args.output_dim, args.length, num_samples=args.num_samples, max_iters=args.max_iters, device=controller_info['device'], time=systime)
-        new_dist, action_f = cem.solve(controller_info['model'], memory_state, last_seq_distribution=controller_info['last_seq_distribution'])
+
+        if 'set_point' in request.form.keys() and request.form['set_point'] is not None:
+            set_point = json.loads(request.form['set_point'])
+        else:
+            set_point = args['default_set_point']
+
+        if args.algorithm.name == 'cem':
+            cem_config = args.algorithm
+            planner = CEMPlanning(set_point, args.input_dim, args.output_dim, cem_config.length, num_samples=cem_config.num_samples, max_iters=cem_config.max_iters, device=controller_info['device'], time=systime)
+        else:
+            raise NotImplementedError
+
+        new_dist, action_f = planner.solve(controller_info['model'], memory_state, last_seq_distribution=controller_info['last_seq_distribution'])
         # action_f 为cem loss最小的动作序列的均值
         controller_info['last_seq_distribution'] = new_dist
         action_sample = [action_f[x].detach().cpu().numpy() for x in range(0, len(action_f))]   # action_f转numpy
@@ -124,14 +138,17 @@ def update():      # 更新隐状态
         return jsonify(response_dict)
 
 
-def control_service_start(args):
+@hydra.main(config_path='config', config_name='config.yaml')
+def control_service_start(args: DictConfig):
 
     # import sys
     # sys.stderr = open('control/logs/service_log.out', 'w')
 
     # torch.multiprocessing.set_start_method('spawn')
     device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu")
-    model = torch.load(args.planning, map_location={'cuda:0': 'cuda:{}'.format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu"})
+    model_path = os.path.join(hydra.utils.get_original_cwd(), 'control', 'model', args.model)
+    # model = torch.load(model_path, map_location={'cuda:0': 'cuda:{}'.format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu"})
+    model = torch.load(model_path)
     model = model.to(device)
     model.eval()
 
@@ -140,6 +157,7 @@ def control_service_start(args):
     controller_info['device'] = device
     controller_info['model'] = model
     controller_info['args'] = args
+    DictConfig2dict(controller_info['args'])
     # controller_info['scale'] = Scale(mean=np.zeros(5), std=np.ones(5))  # 此处需要利用数据集进行估计，应保持和训练时的归一化一致
     # df_scale    [c_out, v_out, c_in, v_in, pressure]
 
@@ -152,17 +170,18 @@ def control_service_start(args):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser('Pressure Control Test')
-    parser.add_argument('--planning',  type=str, default='control/model/cstr_vrnn_5.pkl', help="ckpt path of planning model.")
-    parser.add_argument('--cuda',  type=int, default=3, help="GPU ID, -1 for CPU")
-    parser.add_argument('--length',  type=int, default=50, help="The length of optimized sequence for planning")
-    parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
-    parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
-    parser.add_argument('--max_iters',  type=int, default=50, help="The number of iters in CEM planning")
-    parser.add_argument('--input_dim', type=int, default=1, help='The input_dim of model')
-    parser.add_argument('--output_dim', type=int, default=2, help='The output_dim of model')
-    parser.add_argument('--set_value', type=list, default=[0.8,0.1,0.5], help='The set_value of control')  # 0.8[number of output_dim; number of input_dim]
-    parser.add_argument('--port',  type=int, default=6010, help="The number of iters in CEM planning")
-    parser.add_argument('--debug', action='store_true', default=False)
-    args = parser.parse_args()
-    control_service_start(args)
+    # parser = argparse.ArgumentParser('Pressure Control Test')
+    # parser.add_argument('--model',  type=str, default='control/model/cstr_vrnn_5.pkl', help="ckpt path of planning model.")
+    # parser.add_argument('--planning',  type=str, default='control/model/cstr_vrnn_5.pkl', help="ckpt path of planning model.")
+    # parser.add_argument('--cuda',  type=int, default=3, help="GPU ID, -1 for CPU")
+    # parser.add_argument('--length',  type=int, default=50, help="The length of optimized sequence for planning")
+    # parser.add_argument('--num_samples',  type=int, default=32, help="The number of samples in CEM planning")
+    # parser.add_argument('--num_iters',  type=int, default=32, help="The number of iters in CEM planning")
+    # parser.add_argument('--max_iters',  type=int, default=50, help="The number of iters in CEM planning")
+    # parser.add_argument('--input_dim', type=int, default=1, help='The input_dim of model')
+    # parser.add_argument('--output_dim', type=int, default=2, help='The output_dim of model')
+    # parser.add_argument('--set_value', type=list, default=[0.8,0.1,0.5], help='The set_value of control')  # 0.8[number of output_dim; number of input_dim]
+    # parser.add_argument('--port',  type=int, default=6010, help="The number of iters in CEM planning")
+    # parser.add_argument('--debug', action='store_true', default=False)
+    # args = parser.parse_args()
+    control_service_start()

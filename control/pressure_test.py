@@ -6,7 +6,7 @@ import os
 import json
 
 import torch
-from control.pressure_control_service import control_service_start
+from control.control_service import control_service_start
 
 from control.utils import my_JSON_serializable, dict_to_Tensor
 
@@ -17,8 +17,8 @@ from control.thickener_pressure_simulation import ThickenerPressureSimulation
 
 parser = argparse.ArgumentParser('Pressure control Test')
 parser.add_argument('-R',  type=int, default=400, help="Rounds for Test")
-parser.add_argument('--simulation', type=str, default='control/model/cstr_vrnn_5.pkl', help='ckpt path of simulation model.')
-parser.add_argument('--planning',  type=str, default='control/model/cstr_vrnn_5.pkl', help="ckpt path of planning model.")
+parser.add_argument('--simulation', type=str, default='control/model/cstr_vrnn_5_cpu.pkl', help='ckpt path of simulation model.')
+parser.add_argument('--planning',  type=str, default='control/model/cstr_vrnn_5_cpu.pkl', help="ckpt path of planning model.")
 parser.add_argument('--ip',  type=str, default='localhost', help="ckpt path of planning model.")
 parser.add_argument('-v', '--vis', action='store_true', default=False)
 parser.add_argument('--service', action='store_true', default=False)
@@ -47,7 +47,7 @@ def main(args, logging):
     device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() else "cpu")
 
     model = torch.load(args.simulation, map_location={'cuda:0': 'cuda:2'})
-    model.to(device)
+    model = model.to(device)
 
     logging('save dir = {}'.format(os.getcwd()))
     # 浓密机数据仿真

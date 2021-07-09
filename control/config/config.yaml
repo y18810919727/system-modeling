@@ -1,0 +1,10 @@
+model: cstr_vrnn_5_cpu.pkl # ckpt path of planning model.
+cuda: 3 # GPU ID, -1 for CPU
+input_dim: 1 # Dimension of system input
+output_dim: 2 # Dimension of system output
+controlled_ids: all # The controlled ids in outputs, all or [a1,a2..am] 0<=ai<output_dim.
+default_set_point: [0.8, 0.1, 0.5] # The size of set_point should be equal to controlled_ids
+debug: false
+port: 6010 # The port of controlling service
+defaults:
+  - algorithm: cem # Controlling algorithm

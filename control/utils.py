@@ -9,6 +9,8 @@ import torch
 import json
 import time
 
+from omegaconf import DictConfig, OmegaConf, ListConfig
+
 def my_JSON_serializable(d):
     if isinstance(d, torch.Tensor):
         return json.dumps(d.detach().cpu().numpy().tolist())
@@ -33,6 +35,20 @@ def my_JSON_load(str):
         return json.dumps(nd)
     else:
         return json.dumps(d)
+
+
+def DictConfig2dict(config):
+    if isinstance(config, DictConfig):
+        dict_config =dict(config)
+        return {key: DictConfig2dict(value) for key, value in dict_config.items()}
+    elif isinstance(config, ListConfig):
+        return [DictConfig2dict(x) for x in config]
+    else:
+        return config
+
+
+
+
 
 
 class Timer(object):
