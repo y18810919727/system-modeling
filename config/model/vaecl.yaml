@@ -8,7 +8,7 @@ R: 1
 dynamic:
   type: cl
   weight_model: lstm
-  k_size: 16
+  k_size: 4
   num_layers: 1
   num_linears: 8
 

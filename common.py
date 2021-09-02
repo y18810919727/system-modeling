@@ -5,7 +5,7 @@ import math
 import os
 import time
 import json
-
+import pandas as pd
 import torch
 import logging
 from torch import nn
@@ -16,21 +16,21 @@ class SimpleLogger(object):
         dir = os.path.dirname(f)
         self.dir = dir
         self.begin_time_sec = time.time()
-        #print('test dir', dir, 'from', f)
+        # print('test dir', dir, 'from', f)
         if not os.path.exists(dir):
             os.makedirs(dir)
         with open(f, 'w') as fID:
-            fID.write('%s\n'%header)
+            fID.write('%s\n' % header)
         self.f = f
 
     def __call__(self, *args):
-        #standard output
+        # standard output
         print(*args)
-        #log to file
+        # log to file
         try:
             with open(self.f, 'a') as fID:
-                fID.write('Time_sec = {:.1f} '.format(time.time()-self.begin_time_sec))
-                fID.write(' '.join(str(a) for a in args)+'\n')
+                fID.write('Time_sec = {:.1f} '.format(time.time() - self.begin_time_sec))
+                fID.write(' '.join(str(a) for a in args) + '\n')
         except:
             print('Warning: could not log to', self.f)
 
@@ -38,7 +38,7 @@ class SimpleLogger(object):
 def normalize_seq(x, dim=0):
     import torch
     eps = 1e-12
-    res = (x-torch.mean(x, dim=dim))/torch.sqrt(torch.var(x, dim=dim)).clamp_min(eps)
+    res = (x - torch.mean(x, dim=dim)) / torch.sqrt(torch.var(x, dim=dim)).clamp_min(eps)
     # assert torch.mean(torch.mean(res,dim=dim)).norm() <1e-4
     # assert (torch.mean(torch.var(res,dim=dim))-1).norm() <1e-4
     return res
@@ -76,9 +76,9 @@ def RRSE(y_pred, y_gt):
 
     elif len(y_gt.shape) == 2:
         # each shape (n_seq, n_outputs)
-        se = torch.sum((y_gt - y_pred)**2, dim=0)
+        se = torch.sum((y_gt - y_pred) ** 2, dim=0)
         rse = se / torch.sum(
-            (y_gt - torch.mean(y_gt, dim=0))**2, dim=0
+            (y_gt - torch.mean(y_gt, dim=0)) ** 2, dim=0
         )
         return torch.mean(torch.sqrt(rse))
     else:
@@ -87,7 +87,7 @@ def RRSE(y_pred, y_gt):
 
 def softplus(x, threshold=20):
     return torch.where(
-        x < threshold, torch.log(1+torch.exp(x)), x
+        x < threshold, torch.log(1 + torch.exp(x)), x
     )
 
 
@@ -98,7 +98,7 @@ def inverse_softplus(x, threshold=20):
 
 
 def logsigma2cov(logsigma):
-    return torch.diag_embed(softplus(logsigma)**2)
+    return torch.diag_embed(softplus(logsigma) ** 2)
 
 
 def get_logger(logpath, filepath, package_files=[],
@@ -138,16 +138,18 @@ def normal_interval(dist, e):
 
 def cal_time(fn):
     """计算性能的修饰器"""
-    def wrapper(*args,**kwargs):
+
+    def wrapper(*args, **kwargs):
         starTime = time.time()
-        f = fn(*args,**kwargs)
+        f = fn(*args, **kwargs)
         endTime = time.time()
-        print('%s() runtime:%s ms' % (fn.__name__, 1000*(endTime - starTime)))
+        print('%s() runtime:%s ms' % (fn.__name__, 1000 * (endTime - starTime)))
         return f
+
     return wrapper
 
-def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, accessKey_secret):
 
+def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, accessKey_secret):
     import oss2
 
     def download(bucket, name, path):
@@ -168,6 +170,7 @@ def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, acce
         except Exception as e:
             print("Error occurred when downloading file %s from %s, error message :" % (path, bucket))
             return None
+
     auth = oss2.Auth(accessKey_id, accessKey_secret)
     bucket = oss2.Bucket(auth, oss_endpoint, bucket_name)
     data_paths = []
@@ -178,11 +181,13 @@ def detect_download(objects, base, oss_endpoint, bucket_name, accessKey_id, acce
 
     return data_paths
 
+
 def init_network_weights(net, std=0.1):
     for m in net.modules():
         if isinstance(m, nn.Linear):
             nn.init.normal_(m.weight, mean=0, std=std)
             nn.init.constant_(m.bias, val=0)
+
 
 def merge_first_two_dims(tensor):
     size = tensor.size()
@@ -195,6 +200,21 @@ def split_first_dim(tensor, sizes=None):
     import numpy
     assert type(sizes) is tuple and numpy.prod(sizes) == tensor.size()[0]
     return tensor.contiguous().reshape(*sizes, *tensor.size()[1:])
+
+
+def read_std_mean(name, file_path, th_id):
+    """
+    get z-score statistical value to denormalize.
+    Args:
+        name: point name (eg. out_f, out_c, pressure)
+        file_path: stat file path
+        th_id: 1 or 2
+
+    Returns: (mean, std)
+
+    """
+    stat_df = pd.read_csv(file_path, index_col=0)
+    return stat_df.at['mean' + th_id, name], stat_df.at['std' + th_id, name]
 
 
 def training_loss_visualization(base_dir):
@@ -248,6 +268,6 @@ def training_loss_visualization(base_dir):
     ax.set_ylabel('eval_loss')
     ax.set_title('eval_loss')
     plt.savefig(os.path.join(base_dir, 'val_loss.png'))
-    plt.close()                     #关闭图像，避免出现wraning
+    plt.close()  # 关闭图像，避免出现warning
     # plt.plot(x_dataset_time,y_dataset_train_loss,color='red',label="train_loss")
     # plt.plot(x_dataset_eval_time,y_dataset_eval_loss,color='black',label="loss")

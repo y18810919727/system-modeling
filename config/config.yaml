@@ -4,34 +4,35 @@ mode: train
 history_length: 180
 forward_length: 60
 save_dir: tmp
+ctrl_solution: 1
 train:
-    epochs: 800
-    max_epochs_stop: 100
-    batch_size: 1024
-    eval_epochs: 10
-    num_workers: 8
+  epochs: 800
+  max_epochs_stop: 100
+  batch_size: 512
+  eval_epochs: 10
+  num_workers: 8
 
 test:
-    plt_cnt: 20
-    test_dir: ~
+  plt_cnt: 20
+  test_dir: ~
 
 defaults:
-    - model: vrnn
-    - train/optim: adam
-    - train/schedule: exp
-    - dataset: southeast
+  - model: vaecl
+  - train/optim: adam
+  - train/schedule: exp
+  - dataset: southeast
 
 hydra:
-    job:
-        config:
-            override_dirname:
-              exclude_keys:
-                - dataset
-                - save_dir
-                - model.type
-                - model
-    run:
-        dir: ckpt/${dataset.type}/${save_dir}/${model.type}_${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
-    sweep:
-        dir: ckpt/${dataset.type}/${save_dir}
-        subdir: ${model.type}_${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
+  job:
+    config:
+      override_dirname:
+        exclude_keys:
+          - dataset
+          - save_dir
+          - model.type
+          - model
+  run:
+    dir: ckpt/${dataset.type}/${save_dir}/${model.type}_${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ckpt/${dataset.type}/${save_dir}
+    subdir: ${model.type}_${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}

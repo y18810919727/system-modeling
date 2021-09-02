@@ -2,16 +2,17 @@ import datetime
 from data.db_models import GmsMonitor
 import pandas as pd
 import numpy as np
-import hydra
+# import hydra
 import os
 from torch.utils.data import Dataset
 import copy
-from common import cal_time
+from common import cal_time, SimpleLogger
+from matplotlib import pyplot as plt
 
 
 def mongodb_connect():
     import mongoengine
-    mongoengine.connect('nfca_db', host='192.168.0.37', port=27017, username='nfca', password='nfca')
+    mongoengine.connect('nfca_db', host='47.93.58.98', port=10017, username='nfca', password='nfca')
 
 
 def queryset2df(query_data):
@@ -32,7 +33,22 @@ class SoutheastOreDataset(Dataset):
     东南矿体数据集
     """
 
-    def __init__(self, data_dir, step_time, time_range=None, offline_data=True):
+    def __init__(self, data_dir, step_time, in_name, out_name, logging, time_range=None,
+                 db_gene=True, ctrl_solution=0):
+        """
+
+        Args:
+            data_dir:
+            step_time:
+            in_name:
+            out_name:
+            logging:
+            time_range:
+            db_gene:
+            ctrl_solution: 0：什么也不做
+                           1：泥层压强项增加out_length时延
+                           2：泥层压强从模型输入更为模型输出
+        """
         # 进料浓度、出料浓度、进料流量、底流流量、泥层压力
         self.point = {
             1: [5, 7, 11, 17, 67],
@@ -42,6 +58,7 @@ class SoutheastOreDataset(Dataset):
 
         self.raw_data = {1: [], 2: []}
         self.data_dir = os.path.join(data_dir, 'data/south_con/')
+        self.logging = logging
 
         # interpolation config
         self.inter_sep = 10
@@ -49,14 +66,23 @@ class SoutheastOreDataset(Dataset):
         # 更新二号浓密机的fill_round
         self.already_filled_round = 0
         # Network in/out config
-        self.in_columns = ["out_f", "pressure"]
-        self.out_column = "out_c"
+        # 因为使用omegaconf传入的list config类型是ListConfig, 他不是List的子类(isinstance==False)
+        in_name = in_name[:] if len(list(in_name)[0]) > 1 else [in_name]
+        out_name = out_name[:] if len(list(out_name)[0]) > 1 else [out_name]
+        self.in_columns = in_name
+        self.out_column = out_name
         self.in_length = int(60 / self.inter_sep) * step_time[0]  # 30min
         self.out_length = int(60 / self.inter_sep) * step_time[1]  # 10min
         self.window_step = int(60 / self.inter_sep) * step_time[2]  # 5min
 
-        if not offline_data:
-        # if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
+        if self.ctrl_solution == 1:
+            self.in_columns.remove('pressure')
+        elif self.ctrl_solution == 2:
+            self.in_columns.remove('pressure')
+            self.out_column.append('pressure')
+
+        if db_gene:
+            # if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             mongodb_connect()
             self.gene_data(1, time_range)
             self.gene_data(2, time_range)
@@ -88,7 +114,8 @@ class SoutheastOreDataset(Dataset):
         self.split_pos = []
         for i in range(1, len(round_split)):
             this_fill_length = round_split[i] - round_split[i - 1]
-            for j in range(self.in_length, this_fill_length - self.out_length, self.window_step):
+            shifted_in_length = self.in_length + (self.out_length if self.ctrl_solution == 1 else 0)
+            for j in range(shifted_in_length, this_fill_length - self.out_length, self.window_step):
                 self.split_pos.append(j)
 
     def linear_interpolation(self, data, start_time, end_time=None):
@@ -117,11 +144,11 @@ class SoutheastOreDataset(Dataset):
                 else:
                     i = i + 1
             else:
-                print('error')
+                self.logging('error')
         return pd.DataFrame(return_data)
 
     @cal_time
-    def get_filling_range(self, key, time_range=None):
+    def get_filling_range(self, key):
         """
         筛选满足规则的数据段
         :return: [(start_time1, end_time1),(start_time2, end_time2)]
@@ -170,12 +197,13 @@ class SoutheastOreDataset(Dataset):
         return c_f_range
 
     def zScoreNormalization(self, th_id, df):
-        for point_id in self.point[th_id]:
+
+        for inx, point_id in enumerate(self.point[th_id]):
             mean = df[point_id].mean()
             std = df[point_id].std()
             df[point_id] = df[point_id].apply(lambda x: (x - mean) / std)
-            if point_id == 7 or point_id == 8:
-                print(f'浓密机{th_id}出料浓度的标准差为{std},均值为{mean}')
+            self.logging(
+                f'#{th_id} thickener {self.point["name"][inx]} std is {round(std, 4)}, mean is {round(mean, 4)}')
         return df
 
     def get_time_end(self, th_id, time_range):
@@ -204,7 +232,7 @@ class SoutheastOreDataset(Dataset):
                    round_count=round_count,
                    data_count=point_df.shape[0])
         if unnormalized:
-            file_name = file_name[:-4] + "unnormalized.csv"
+            file_name = file_name[:-4] + "-unnormalized.csv"
         if not os.path.exists(path):
             os.makedirs(path)
         point_df.to_csv(path + file_name)
@@ -215,7 +243,7 @@ class SoutheastOreDataset(Dataset):
                 continue
             th_id, round_count, data_count = filename[:-4].split('-')
             self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename))
-            print(f"已读取浓密机{th_id}的{round_count}段数据，共计{data_count}条")
+            self.logging(f"get thickener#{th_id} {round_count} round filling, a total of {data_count} records")
 
     @cal_time
     def gene_data(self, th_id, time_range=None, unnormalized_save=False):
@@ -242,7 +270,7 @@ class SoutheastOreDataset(Dataset):
                 df_merge = df_merge.merge(df_list[i + 1], on='time')
             df_merge['fill_round'] = inx + self.already_filled_round
             all_df = all_df.append(df_merge)
-        if not unnormalized_save:
+        if unnormalized_save:
             self.save_csv(th_id, all_df, unnormalized=True)
         all_df = self.zScoreNormalization(th_id, all_df)
         all_df.rename(columns={self.point[th_id][i]: self.point['name'][i] for i in range(len(self.point['name']))},
@@ -252,12 +280,25 @@ class SoutheastOreDataset(Dataset):
         self.already_filled_round = len(time_list)
 
     def __getitem__(self, item):
-        item_in = np.array(
-            self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][self.in_columns],
-            dtype=np.float32)
-        item_out = np.array(
-            [self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][self.out_column]],
-            dtype=np.float32).T
+        if self.ctrl_solution == 1:
+            item_in_1 = np.array(
+                self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
+                    self.in_columns], dtype=np.float32)
+            item_in_2 = np.array(
+                self.data[self.split_pos[item] - self.in_length - self.out_length:self.split_pos[item]][[
+                    'pressure']], dtype=np.float32)
+            item_in = np.concatenate((item_in_1, item_in_2), axis=1)
+
+            item_out = np.array(
+                self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
+                    self.out_column], dtype=np.float32)
+        else:
+            item_in = np.array(
+                self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
+                    self.in_columns], dtype=np.float32)
+            item_out = np.array(
+                self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
+                    self.out_column], dtype=np.float32)
         return item_in, item_out
 
     def __len__(self):
@@ -288,8 +329,33 @@ class SoutheastOreDataset(Dataset):
                 )
 
 
-if __name__ == '__main__':
-    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 6, 10, 0, 0, 0))
-    dataset = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
-                                  in_name=["out_f", "pressure"], out_name="out_c")
+# if __name__ == '__main__':
+#     dataset0 = SoutheastOreDataset(data_dir='/code/SE-VAE', step_time=[30, 10, 5],
+#                                    in_name=["out_f", "pressure"], out_name="out_c",
+#                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
+#                                    db_gene=True)
+#     dataset0.data.hist(bins=200)
+#     plt.show()
 
+if __name__ == '__main__':
+    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 4, 10, 0, 0, 0))
+    dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
+                                   in_name=["out_f", "pressure"], out_name="out_c",
+                                   logging=SimpleLogger(os.path.join('tmp', 'test.out')),
+                                   db_gene=True
+                                   )
+#     dataset1 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
+#                                    in_name=["out_f", "pressure"], out_name="out_c",
+#                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
+#                                    ctrl_solution=1)
+#     dataset2 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
+#                                    in_name=["out_f", "pressure"], out_name="out_c",
+#                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
+#                                    ctrl_solution=2)
+#     dataset0.data.hist(bins=200)
+#     plt.show()
+#     print((dataset0[1][0].shape, dataset0[1][1].shape))
+#     print((dataset1[1][0].shape, dataset1[1][1].shape))
+#     print((dataset2[1][0].shape, dataset2[1][1].shape))
+#     assert dataset0[1][0].shape == dataset1[1][0].shape
+#     assert dataset1[1][0].shape != dataset2[1][0].shape

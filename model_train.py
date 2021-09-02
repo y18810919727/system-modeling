@@ -15,13 +15,14 @@ import pandas as pd
 
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
 from torch.utils.data import DataLoader
-from common import init_network_weights
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import traceback
 from scipy.stats import pearsonr
 import common
-from common import detect_download
+from common import detect_download, init_network_weights
+
+os.environ["CUDA_VISIBLE_DEVICES"] = str(3)
 
 
 def set_random_seed(seed):
@@ -197,7 +198,11 @@ def main_train(args, logging):
         train_dataset, val_dataset, _ = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
             step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
-            offline_data=args.dataset.offline_data
+            db_gene=args.dataset.offline_data,
+            in_name=args.dataset.in_columns,
+            out_name=args.dataset.out_column,
+            logging=logging,
+            ctrl_solution=args.ctrl_solution,
         ).get_split_dataset(dataset_split)
 
     else:
@@ -271,7 +276,7 @@ def main_train(args, logging):
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
                 val_loss, val_rrse, val_time = test_net(model, val_loader, args)
-            logging('eval epoch = {} with loss = {:.4f} rrse = {:.4f} val_time = {:.4f}'.format(
+            logging('eval epoch = {} with loss = {:.6f} rrse = {:.4f} val_time = {:.4f}'.format(
                 epoch, val_loss, val_rrse, val_time)
             )
             if best_loss > val_loss:
@@ -302,7 +307,7 @@ def main_train(args, logging):
     ))
 
 
-@hydra.main(config_path='config', config_name="config.yaml")
+@hydra.main(config_path='config', config_name="config2.yaml")
 def main_app(args: DictConfig) -> None:
     from common import SimpleLogger, training_loss_visualization
 
