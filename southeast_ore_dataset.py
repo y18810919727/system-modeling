@@ -55,8 +55,9 @@ class SoutheastOreDataset(Dataset):
             2: [6, 8, 12, 18, 68],
             "name": ["feed_c", "out_c", "feed_f", "out_f", "pressure"]
         }
-
-        self.raw_data = {1: [], 2: []}
+        self.ctrl_solution = ctrl_solution
+        self.unfilter_data = {}
+        self.raw_data = {1: pd.DataFrame(), 2: pd.DataFrame()}
         self.data_dir = os.path.join(data_dir, 'data/south_con/')
         self.logging = logging
 
@@ -89,17 +90,16 @@ class SoutheastOreDataset(Dataset):
 
         else:
             # TODO 长期计划：add config文件，注明Dataset时间段、是否被插值
-            from common import detect_download
-            import pandas as pd
-            access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
-            _ = detect_download(
-                pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), self.data_dir, 'export_urls.csv')),
-                self.data_dir,
-                'http://oss-cn-beijing.aliyuncs.com',
-                'southeast-thickener',
-                access_key['AccessKey ID'][0],
-                access_key['AccessKey Secret'][0]
-            )
+            # from common import detect_download
+            # access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
+            # _ = detect_download(
+            #     pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), self.data_dir, 'export_urls.csv')),
+            #     self.data_dir,
+            #     'http://oss-cn-beijing.aliyuncs.com',
+            #     'southeast-thickener',
+            #     access_key['AccessKey ID'][0],
+            #     access_key['AccessKey Secret'][0]
+            # )
             self.read_csv()
 
         # merge both thickeners data
@@ -153,43 +153,43 @@ class SoutheastOreDataset(Dataset):
         筛选满足规则的数据段
         :return: [(start_time1, end_time1),(start_time2, end_time2)]
         """
-        # 以底流浓度为标准：分割相邻点间隔时间或浓度<40持续时间大于180s
-        if time_range is not None:
-            data_c = list(GmsMonitor.objects(
-                time__gte=time_range[0], time__lt=time_range[1]).only(
-                'point_id', 'time', 'Monitoring_value').filter(
-                point_id=self.point[key][1]).filter(Monitoring_value__gte=40).order_by("time"))
-        else:
-            data_c = list(GmsMonitor.objects().only(
-                'point_id', 'time', 'Monitoring_value').filter(
-                point_id=self.point[key][1]).filter(Monitoring_value__gte=40).order_by("time"))
+        # 以底流浓度为标准：分割「相邻点间隔时间」或「浓度<40持续时间」大于180s
+        data_c = list(self.unfilter_data[self.point[key][1]].loc[lambda x: x['value'] > 40]
+                      .T.to_dict().values())
         c_count = len(data_c)
         start_time = None
         c_range = []
         for i in range(c_count - 1):
-            delta_time = data_c[i + 1].time - data_c[i].time
+            delta_time = data_c[i + 1]['time'] - data_c[i]['time']
             if start_time is None and delta_time.seconds < 180:
-                start_time = data_c[i].time
+                start_time = data_c[i]['time']
             elif start_time is not None and delta_time.seconds > 180:
-                c_range.append((start_time, data_c[i].time))
+                c_range.append((start_time, data_c[i]['time']))
                 start_time = None
-        c_range.append((start_time, data_c[-1].time))
+        c_range.append((start_time, data_c[-1]['time']))
 
-        # 以底流流量为标准：舍弃长度小于1hours的序列；若相邻点间隔时间或流量<5持续时间大于180s，将其切成两段序列；
+        # 以底流流量为标准：
+        #       1. 序列长度大于1hours；
+        #       2. 若「相邻点间隔时间」或「流量<5持续时间」大于180s，将其切成两段序列；
+        #       3. 切割后的序列中，「流量>5」的个数大于180个（标准采样频率为5s，即至少有1/4的有效值)
         c_f_range = []
         for t in c_range:
             if (t[1] - t[0]).seconds > 3600:
                 data_f = list(
-                    GmsMonitor.objects(time__gte=t[0], time__lt=t[1]).only(
-                        'point_id', 'time', 'Monitoring_value').filter(point_id=self.point[key][3]).filter(
-                        Monitoring_value__gte=5).order_by("time"))
+                    self.unfilter_data[self.point[key][3]].loc[lambda x: x['value'] > 5]
+                        .T.to_dict().values())
                 f_count = len(data_f)
-                start_time = t[0]
+                if f_count < 180:
+                    continue
+                start_time = data_f[0]['time']
+                start_inx = 0
                 for i in range(f_count - 1):
-                    delta_time = data_f[i + 1].time - data_f[i].time
+                    delta_time = data_f[i + 1]['time'] - data_f[i]['time']
                     if delta_time.seconds > 180:
-                        c_f_range.append((start_time, data_f[i].time))
-                        start_time = data_f[i + 1].time
+                        if (i - start_inx) > 180:
+                            c_f_range.append((start_time, data_f[i]['time']))
+                        start_time = data_f[i + 1]['time']
+                        start_inx = i + 1
                 c_f_range.append((start_time, t[1]))
 
         c_f_range = list(filter(lambda t: (t[1] - t[0]).seconds > 3600, c_f_range))
@@ -211,16 +211,14 @@ class SoutheastOreDataset(Dataset):
         for point_id in self.point[th_id]:
             time_list.append(
                 GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).only(
-                    'point_id', 'time', 'Monitoring_value').filter(point_id=point_id).first().time)
+                    'point_id', 'time', 'Monitoring_value').filter(point_id=point_id).first()['time'])
         return min(time_list)
 
     def get_time_start(self, th_id, time_range):
         time_list = []
         for point_id in self.point[th_id]:
             time_list.append(
-                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).only(
-                    'point_id', 'time', 'Monitoring_value').filter(point_id=point_id).order_by(
-                    "time").first().time)
+                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]].head(1)['time'])
         return max(time_list)
 
     @cal_time
@@ -246,9 +244,23 @@ class SoutheastOreDataset(Dataset):
             self.logging(f"get thickener#{th_id} {round_count} round filling, a total of {data_count} records")
 
     @cal_time
-    def gene_data(self, th_id, time_range=None, unnormalized_save=False):
-        time_list = self.get_filling_range(th_id, time_range)
-        print("浓密机{th_id} 共{count}个时间段".format(th_id=th_id, count=len(time_list)))
+    def gene_data(self, th_id, time_range=None, unnormalized_save=True):
+        if time_range is not None:
+            for i in self.point[th_id]:
+                self.unfilter_data[i] = (
+                    queryset2df(GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1], point_id=i)
+                                .only('time', 'Monitoring_value'))
+                        .set_index(['time'], drop=False)
+                        .iloc[::-1].sort_index(ascending=True))
+        else:
+            for i in self.point[th_id]:
+                self.unfilter_data[i] = (
+                    queryset2df(GmsMonitor.objects(point_id=i).only('time', 'Monitoring_value'))
+                        .set_index(['time'], drop=False)
+                        .iloc[::-1].sort_index(ascending=True))
+
+        time_list = self.get_filling_range(th_id)
+        self.logging("thickener#{th_id} total {count} time frame".format(th_id=th_id, count=len(time_list)))
         all_df = pd.DataFrame()
         for inx, t in enumerate(time_list):
             df_list = []
