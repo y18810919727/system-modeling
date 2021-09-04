@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 
 def mongodb_connect():
     import mongoengine
-    mongoengine.connect('nfca_db', host='47.93.58.98', port=10017, username='nfca', password='nfca')
+    mongoengine.connect('nfca_db', host='dgx.server.ustb-ai3d.cn', port=27018, username='nfca', password='nfca')
 
 
 def queryset2df(query_data):
@@ -22,9 +22,10 @@ def queryset2df(query_data):
     """
     dic = {"time": [], "value": []}
     for q in query_data:
-        dic["time"].append(q.time)
-        dic["value"].append(q.Monitoring_value)
-    df = pd.DataFrame(dic)
+        dic["time"].append(q['time'])
+        dic["value"].append(q['Monitoring_value'])
+    #  存在数据库多条目同一时间同一值、多条目同一时间不同值的情况，仅保留首条数据
+    df = pd.DataFrame(dic).drop_duplicates(subset=['time'])
     return df
 
 
@@ -154,19 +155,18 @@ class SoutheastOreDataset(Dataset):
         :return: [(start_time1, end_time1),(start_time2, end_time2)]
         """
         # 以底流浓度为标准：分割「相邻点间隔时间」或「浓度<40持续时间」大于180s
-        data_c = list(self.unfilter_data[self.point[key][1]].loc[lambda x: x['value'] > 40]
-                      .T.to_dict().values())
+        data_c = self.unfilter_data[self.point[key][1]].loc[lambda x: x['value'] > 40]['time']
         c_count = len(data_c)
         start_time = None
         c_range = []
+        delta_time = data_c.diff()
         for i in range(c_count - 1):
-            delta_time = data_c[i + 1]['time'] - data_c[i]['time']
-            if start_time is None and delta_time.seconds < 180:
-                start_time = data_c[i]['time']
-            elif start_time is not None and delta_time.seconds > 180:
-                c_range.append((start_time, data_c[i]['time']))
+            if start_time is None and delta_time[i + 1].seconds < 180:
+                start_time = data_c[i]
+            elif start_time is not None and delta_time[i + 1].seconds > 180:
+                c_range.append((start_time, data_c[i]))
                 start_time = None
-        c_range.append((start_time, data_c[-1]['time']))
+        c_range.append((start_time, data_c[-1]))
 
         # 以底流流量为标准：
         #       1. 序列长度大于1hours；
@@ -175,26 +175,45 @@ class SoutheastOreDataset(Dataset):
         c_f_range = []
         for t in c_range:
             if (t[1] - t[0]).seconds > 3600:
-                data_f = list(
-                    self.unfilter_data[self.point[key][3]].loc[lambda x: x['value'] > 5]
-                        .T.to_dict().values())
+                data_f = self.unfilter_data[self.point[key][3]][t[0]:t[1]].loc[lambda x: x['value'] > 5]['time']
                 f_count = len(data_f)
                 if f_count < 180:
                     continue
-                start_time = data_f[0]['time']
+                start_time = data_f[0]
                 start_inx = 0
+                delta_time = data_f.diff()
                 for i in range(f_count - 1):
-                    delta_time = data_f[i + 1]['time'] - data_f[i]['time']
-                    if delta_time.seconds > 180:
+                    if delta_time[i + 1].seconds > 180:
                         if (i - start_inx) > 180:
-                            c_f_range.append((start_time, data_f[i]['time']))
-                        start_time = data_f[i + 1]['time']
+                            c_f_range.append((start_time, data_f[i]))
+                        start_time = data_f[i + 1]
                         start_inx = i + 1
                 c_f_range.append((start_time, t[1]))
 
-        c_f_range = list(filter(lambda t: (t[1] - t[0]).seconds > 3600, c_f_range))
+        # 以底流浓度导数为标准，删除开头和结尾，win_size尺寸的滑动窗口内变化大于max_general_dt的区间
+        c_f_c_range = []
+        for t in c_f_range:
+            data_c_3 = self.unfilter_data[self.point[key][1]][t[0]:t[1]]
+            c_delta = data_c_3['value'].diff()
+            win_size = 10
+            max_general_dt = 5
+            aggr_delta = [c_delta[i:i + win_size].sum() for i in range(len(c_delta) - win_size)]
+            for i in range(len(aggr_delta)):
+                if i < max_general_dt:
+                    start_time = data_c_3['time'][i]
+                    break
+            else:
+                continue
+            for i in range(len(aggr_delta), 0, -1):
+                if i < max_general_dt:
+                    end_time = data_c_3['time'][i]
+                    break
+            else:
+                continue
+            c_f_c_range.append((start_time, end_time))
 
-        return c_f_range
+        c_f_c_range = list(filter(lambda t: (t[1] - t[0]).seconds > 3600, c_f_c_range))
+        return c_f_c_range
 
     def zScoreNormalization(self, th_id, df):
 
@@ -210,15 +229,14 @@ class SoutheastOreDataset(Dataset):
         time_list = []
         for point_id in self.point[th_id]:
             time_list.append(
-                GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1]).only(
-                    'point_id', 'time', 'Monitoring_value').filter(point_id=point_id).first()['time'])
+                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]]['time'][0])
         return min(time_list)
 
     def get_time_start(self, th_id, time_range):
         time_list = []
         for point_id in self.point[th_id]:
             time_list.append(
-                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]].head(1)['time'])
+                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]]['time'][0])
         return max(time_list)
 
     @cal_time
@@ -243,19 +261,28 @@ class SoutheastOreDataset(Dataset):
             self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename))
             self.logging(f"get thickener#{th_id} {round_count} round filling, a total of {data_count} records")
 
+    @staticmethod
+    def see_duplicate_item(df):
+        """ 输入Dataframe（含time、value列），返回重复的条目"""
+        tar_df = df.reset_index(drop=True)
+        time_repeat_mask = tar_df.groupby('time').count() > 1
+        inx = time_repeat_mask[time_repeat_mask['value'] == True].index
+        repeat_df = tar_df[tar_df['time'].isin(inx)]
+        return repeat_df
+
     @cal_time
     def gene_data(self, th_id, time_range=None, unnormalized_save=True):
         if time_range is not None:
             for i in self.point[th_id]:
                 self.unfilter_data[i] = (
                     queryset2df(GmsMonitor.objects(time__gte=time_range[0], time__lt=time_range[1], point_id=i)
-                                .only('time', 'Monitoring_value'))
+                                .only('time', 'Monitoring_value').as_pymongo())
                         .set_index(['time'], drop=False)
                         .iloc[::-1].sort_index(ascending=True))
         else:
             for i in self.point[th_id]:
                 self.unfilter_data[i] = (
-                    queryset2df(GmsMonitor.objects(point_id=i).only('time', 'Monitoring_value'))
+                    queryset2df(GmsMonitor.objects(point_id=i).only('time', 'Monitoring_value').as_pymongo())
                         .set_index(['time'], drop=False)
                         .iloc[::-1].sort_index(ascending=True))
 
@@ -267,11 +294,7 @@ class SoutheastOreDataset(Dataset):
             for point_id in self.point[th_id]:
                 start_time = self.get_time_start(th_id, t)
                 end_time = self.get_time_end(th_id, t)
-                df_data = queryset2df(
-                    GmsMonitor.objects(
-                        time__gte=t[0], time__lt=t[1]).only(
-                        'point_id', 'time', 'Monitoring_value').filter(
-                        point_id=point_id).order_by("time"))
+                df_data = self.unfilter_data[point_id].loc[t[0]:t[1]]
                 df_data = self.linear_interpolation(df_data, start_time=start_time, end_time=end_time)
 
                 df_data = df_data.rename(columns={'value': point_id})
@@ -341,14 +364,6 @@ class SoutheastOreDataset(Dataset):
                 )
 
 
-# if __name__ == '__main__':
-#     dataset0 = SoutheastOreDataset(data_dir='/code/SE-VAE', step_time=[30, 10, 5],
-#                                    in_name=["out_f", "pressure"], out_name="out_c",
-#                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
-#                                    db_gene=True)
-#     dataset0.data.hist(bins=200)
-#     plt.show()
-
 if __name__ == '__main__':
     test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 4, 10, 0, 0, 0))
     dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
@@ -356,18 +371,3 @@ if __name__ == '__main__':
                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
                                    db_gene=True
                                    )
-#     dataset1 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
-#                                    in_name=["out_f", "pressure"], out_name="out_c",
-#                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
-#                                    ctrl_solution=1)
-#     dataset2 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
-#                                    in_name=["out_f", "pressure"], out_name="out_c",
-#                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
-#                                    ctrl_solution=2)
-#     dataset0.data.hist(bins=200)
-#     plt.show()
-#     print((dataset0[1][0].shape, dataset0[1][1].shape))
-#     print((dataset1[1][0].shape, dataset1[1][1].shape))
-#     print((dataset2[1][0].shape, dataset2[1][1].shape))
-#     assert dataset0[1][0].shape == dataset1[1][0].shape
-#     assert dataset1[1][0].shape != dataset2[1][0].shape
