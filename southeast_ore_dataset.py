@@ -195,19 +195,20 @@ class SoutheastOreDataset(Dataset):
         for t in c_f_range:
             data_c_3 = self.unfilter_data[self.point[key][1]][t[0]:t[1]]
             c_delta = data_c_3['value'].diff()
-            win_size = 10
-            max_general_dt = 5
-            aggr_delta = [c_delta[i:i + win_size].sum() for i in range(len(c_delta) - win_size)]
+            WIN_SIZE = 10
+            MAX_GENERAL_DT = 5
+            WATCHING_WINS = len(c_delta) / 2
+            aggr_delta = [c_delta[i:i + WIN_SIZE].sum() for i in range(1, len(c_delta) - WIN_SIZE)]
             for i in range(len(aggr_delta)):
-                if i < max_general_dt:
+                if max(aggr_delta[i:i + WATCHING_WINS]) < MAX_GENERAL_DT:
                     start_time = data_c_3['time'][i]
                     break
             else:
                 continue
-            for i in range(len(aggr_delta), 0, -1):
-                if i < max_general_dt:
-                    end_time = data_c_3['time'][i]
-                    break
+            for i in range(len(aggr_delta) - 1, 0, -1):
+                if max(aggr_delta[i - WATCHING_WINS:i]) < MAX_GENERAL_DT:
+                    end_time = data_c_3['time'][i + WIN_SIZE]
+                break
             else:
                 continue
             c_f_c_range.append((start_time, end_time))
@@ -229,7 +230,7 @@ class SoutheastOreDataset(Dataset):
         time_list = []
         for point_id in self.point[th_id]:
             time_list.append(
-                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]]['time'][0])
+                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]]['time'][-1])
         return min(time_list)
 
     def get_time_start(self, th_id, time_range):
@@ -294,7 +295,7 @@ class SoutheastOreDataset(Dataset):
             for point_id in self.point[th_id]:
                 start_time = self.get_time_start(th_id, t)
                 end_time = self.get_time_end(th_id, t)
-                df_data = self.unfilter_data[point_id].loc[t[0]:t[1]]
+                df_data = self.unfilter_data[point_id].loc[start_time:end_time]
                 df_data = self.linear_interpolation(df_data, start_time=start_time, end_time=end_time)
 
                 df_data = df_data.rename(columns={'value': point_id})
