@@ -228,7 +228,9 @@ class AttentionSeq2Seq(nn.Module):
         predicted_seq = torch.stack(predicted_list, dim=0)
 
         # The predicted distribution with zero covariance matrix (entropy is equal to 0)
-        predicted_dist = MultivariateNormal(predicted_seq, torch.diag_embed(torch.zeros_like(predicted_seq)))
+        predicted_dist = MultivariateNormal(predicted_seq, torch.diag_embed(
+            torch.ones_like(predicted_seq)/torch.Tensor([float(1e9)]).to(predicted_seq.device)
+        ))
 
         input_ob_seq = torch.cat([external_input_seq, predicted_seq], dim=-1)
 

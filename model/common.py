@@ -72,8 +72,42 @@ from torch.distributions.multivariate_normal import MultivariateNormal, _precisi
 from torch.distributions import constraints
 from torch.distributions.distribution import Distribution
 from torch.distributions.utils import _standard_normal, lazy_property
+from torch.distributions.constraints import Constraint
+
+class _DiagPositiveDefinite(Constraint):
+    """
+    Constrain to positive-definite diagonal matrices.
+    """
+
+    def check(self, value):
+        return value.diagonal(dim1=-2, dim2=-1).min(dim=-1)[0] > 0.0
+
+diag_positive_definite = _DiagPositiveDefinite()
+
+
+# class _PositiveDefinite(Constraint):
+#     It is a serial implementation of checking positive definite !!!!!!!
+#     """
+#     Constrain to positive-definite matrices.
+#     """
+#     event_dim = 2
+#
+#     def check(self, value):
+#         matrix_shape = value.shape[-2:]
+#         batch_shape = value.unsqueeze(0).shape[:-2]
+#         # note that `symeig()` returns eigenvalues in ascending order
+#         flattened_value = value.reshape((-1,) + matrix_shape)
+#         return torch.stack([v.symeig(eigenvectors=False)[0][:1] > 0.0
+#                             for v in flattened_value]).view(batch_shape)
 
 class DiagMultivariateNormal(torch.distributions.multivariate_normal.MultivariateNormal):
+
+    arg_constraints = {'loc': constraints.real_vector,
+                       # positive_definite.positive_definite is replaced by diag_positive_definite
+                       'covariance_matrix': diag_positive_definite,
+                       'precision_matrix': diag_positive_definite,
+                       'scale_tril': constraints.lower_cholesky}
+
     def __init__(self, loc, covariance_matrix=None, precision_matrix=None, scale_tril=None, validate_args=None):
         if loc.dim() < 1:
             raise ValueError("loc must be at least one-dimensional.")

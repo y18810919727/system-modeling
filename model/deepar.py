@@ -8,9 +8,13 @@ import json
 import torch
 from torch import nn
 from model.common import DBlock, PreProcess, MLP
+# from model.common import
+from model.common import DiagMultivariateNormal as MultivariateNormal
 
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
 from model.func import normal_differential_sample, multivariate_normal_kl_loss
+import time
+from common import TimeRecorder
 
 
 class DeepAR(nn.Module):
@@ -155,10 +159,11 @@ class DeepAR(nn.Module):
         deepAR中会考虑不存在的label值，这里不考虑
         """
         outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
+
         state_mu = outputs['state_mu']
         state_logsigma = outputs['state_logsigma']
         l, batch_size, _ = observations_seq.shape
-        distribution = torch.distributions.MultivariateNormal(state_mu, logsigma2cov(state_logsigma))
+        distribution = MultivariateNormal(state_mu, logsigma2cov(state_logsigma))
         likelihood = distribution.log_prob(observations_seq)
         loss_batch_mean = torch.mean(likelihood, dim=1)
         loss = -torch.squeeze(torch.sum(loss_batch_mean, dim=0))

@@ -35,6 +35,28 @@ class SimpleLogger(object):
             print('Warning: could not log to', self.f)
 
 
+class TimeRecorder:
+    def __init__(self):
+        self.infos = {}
+
+    def __call__(self, info, *args, **kwargs):
+        class Context:
+            def __init__(self, recoder, info):
+                self.recoder = recoder
+                self.begin_time = None
+                self.info = info
+
+            def __enter__(self):
+                self.begin_time = time.time()
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.recoder.infos[self.info] = time.time() - self.begin_time
+
+        return Context(self, info)
+
+    def __str__(self):
+        return ' '.join(['{}:{:.2f}s'.format(info, t) for info, t in self.infos.items()])
+
 def normalize_seq(x, dim=0):
     import torch
     eps = 1e-12
