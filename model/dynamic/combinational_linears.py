@@ -12,7 +12,7 @@ import torch
 from torch import nn
 from model.func import weighted_linear, normal_differential_sample
 from common import logsigma2cov
-from torch.distributions import MultivariateNormal
+from model.common import DiagMultivariateNormal as MultivariateNormal
 
 
 class CombinationalLinears(nn.Module):

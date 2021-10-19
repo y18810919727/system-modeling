@@ -230,7 +230,7 @@ class VAEAKFCombinedLinear(nn.Module):
         state_mu = outputs['state_mu']
         state_logsigma = outputs['state_logsigma']
         weight_initial_hidden_state = memory_state['weight_hidden_state']
-        external_input_seq_embed = memory_state['external_input_seq_embed']
+        external_input_seq_embed = outputs['external_input_seq_embed']
 
         l, bs, _ = observations_seq.shape
         if self.training:

@@ -11,6 +11,7 @@ from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split
 from model.func import weighted_linear, normal_differential_sample, multivariate_normal_kl_loss
 from model.dynamic.combinational_linears import CombinationalLinears
 from model.common import DBlock, PreProcess
+from model.common import DiagMultivariateNormal as MultivariateNormal
 
 
 
@@ -93,7 +94,7 @@ class VAEAKFCombinedLinear(nn.Module):
         self.weight_initial_hidden_state = weight_initial_hidden_state
         # region 估计每个位置的weight_hidden_state
         sampled_state = normal_differential_sample(
-            torch.distributions.MultivariateNormal(self.state_mu, logsigma2cov(self.state_logsigma))
+            MultivariateNormal(self.state_mu, logsigma2cov(self.state_logsigma))
         )
         # weight_initial_hidden_state 是上一轮次forward时lstm的隐状态(hn, cn)
 
