@@ -7,7 +7,7 @@ import json
 
 import torch
 
-
+# 归一化
 class Scale:
     def __init__(self, mean, std):
         self.mean = mean

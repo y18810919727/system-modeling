@@ -63,21 +63,17 @@ CUDA_VISIBLE_DEVICES=3 python model_test.py 'save_dir=ckpt/west/vrnn/vrnn_model.
 参考资料: https://hydra.cc/
 
 
-## Docker build
+## 控制部分的Docker build
 
 1. 构建镜像
 ```bash
-docker build -t test/pressure_control:v1 . 
+docker build -t ai3d/uc_control:v1 . 
 ```
 2. 启动容器
 ```bash
-docker run --rm --gpus all -it -p 6008:6008 test/pressure_control:v1 --cuda 0
+docker run --rm --gpus all -it -p 6010:6010 ai3d/uc_control:v1 cuda=0
 ```
 参数解释:
-- cuda: 使用的GPU ID ，不加参数默认为2号gpu
+- cuda: 使用GPU ID ，不加参数默认为0号gpu
+- 其他参数见```control/config/config/yaml```
 
-Dockerfile 启动命令:
-```bash
-ENTRYPOINT ["sh", "-c", "python control/pressure_control_service.py"]
-CMD ["--cuda", "2"]
-```

@@ -123,8 +123,17 @@ ckpt/*.pth
 !/jupyter/Redraw.ipynb
 scripts/tmp/*
 /ckpt/
+/control_cstr/
+/control/figs/
+/control/logs/
+/control/model/*.pkl
+/data/southeast/
+/log.out
+/typescript
+/tmp/
 
 /data/south_con/*.csv
 !/data/south_con/*urls.csv
 !/data/winding/data_url.csv
 !/data/AccessKey.csv
+!/control/model/cstr_vrnn_5_cpu.pkl

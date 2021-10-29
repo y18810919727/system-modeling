@@ -1,0 +1,5 @@
+name: cem
+length: 50 # help="The length of optimized sequence for planning"
+num_samples: 32 # help="The number of samples in CEM planning"
+num_iters: 32 # help="The number of iters in CEM planning"
+max_iters: 50 # help="The max number of iters in CEM planning"
