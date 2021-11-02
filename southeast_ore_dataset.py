@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 import copy
 from common import cal_time, SimpleLogger
 from matplotlib import pyplot as plt
+from model.informer.utils.tools import StandardScaler
 
 
 def mongodb_connect():
@@ -28,6 +29,7 @@ def queryset2df(query_data):
     return df
 
 
+# TODO: 切换成默认是未归一化的模式
 class SoutheastOreDataset(Dataset):
     """
     东南矿体数据集
@@ -71,7 +73,7 @@ class SoutheastOreDataset(Dataset):
         in_name = in_name[:] if len(list(in_name)[0]) > 1 else [in_name]
         out_name = out_name[:] if len(list(out_name)[0]) > 1 else [out_name]
         self.in_columns = in_name
-        self.out_column = out_name
+        self.out_columns = out_name
         self.in_length = int(60 / self.inter_sep) * step_time[0]  # 30min
         self.out_length = int(60 / self.inter_sep) * step_time[1]  # 10min
         self.window_step = int(60 / self.inter_sep) * step_time[2]  # 5min
@@ -80,7 +82,7 @@ class SoutheastOreDataset(Dataset):
             self.in_columns.remove('pressure')
         elif self.ctrl_solution == 2:
             self.in_columns.remove('pressure')
-            self.out_column.append('pressure')
+            self.out_columns.append('pressure')
 
         if not data_from_csv:
             # if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
@@ -116,7 +118,15 @@ class SoutheastOreDataset(Dataset):
             this_fill_length = round_split[i] - round_split[i - 1]
             shifted_in_length = self.in_length + (self.out_length if self.ctrl_solution == 1 else 0)
             for j in range(shifted_in_length, this_fill_length - self.out_length, self.window_step):
-                self.split_pos.append(j)
+                self.split_pos.append(round_split[i - 1] + j)
+
+        if data_from_csv:
+            self.scaler = StandardScaler()
+            self.scaler.fit(self.data.values,
+                            inpt=[self.point['name'].index(i) for i in self.in_columns],
+                            outpt=[self.point['name'].index(i) for i in self.out_columns])
+            self.data = pd.DataFrame(self.scaler.transform(self.data.values),
+                                     columns=['feed_c', 'out_c', 'feed_f', 'out_f', 'pressure', 'fill_round'])
 
     def linear_interpolation(self, data, start_time, end_time=None):
         """
@@ -255,10 +265,10 @@ class SoutheastOreDataset(Dataset):
 
     def read_csv(self):
         for filename in os.listdir(self.data_dir):
-            if filename.count('-') != 2:
+            if filename.count('-') != 3:
                 continue
-            th_id, round_count, data_count = filename[:-4].split('-')
-            self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename))
+            th_id, round_count, data_count, _ = filename[:-4].split('-')
+            self.raw_data[int(th_id)] = pd.read_csv(os.path.join(self.data_dir, filename), usecols=range(2, 8))
             self.logging(f"get thickener#{th_id} {round_count} round filling, a total of {data_count} records")
 
     @staticmethod
@@ -306,6 +316,7 @@ class SoutheastOreDataset(Dataset):
                 df_merge = df_merge.merge(df_list[i + 1], on='time')
             df_merge['fill_round'] = inx + self.already_filled_round
             all_df = all_df.append(df_merge)
+        #     TODO: 未归一化数据标签未rename，无法合并
         if unnormalized_save:
             self.save_csv(th_id, all_df, unnormalized=True)
         all_df = self.zScoreNormalization(th_id, all_df)
@@ -327,14 +338,14 @@ class SoutheastOreDataset(Dataset):
 
             item_out = np.array(
                 self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
-                    self.out_column], dtype=np.float32)
+                    self.out_columns], dtype=np.float32)
         else:
             item_in = np.array(
                 self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
                     self.in_columns], dtype=np.float32)
             item_out = np.array(
                 self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
-                    self.out_column], dtype=np.float32)
+                    self.out_columns], dtype=np.float32)
         return item_in, item_out
 
     def __len__(self):
@@ -349,7 +360,6 @@ class SoutheastOreDataset(Dataset):
     @cal_time
     def get_split_dataset(self, dataset_split: list):
         """
-
         Args:
             dataset_split: train:test:valid eg. [0.6,0.2,0.2]
 
@@ -361,7 +371,8 @@ class SoutheastOreDataset(Dataset):
         assert dataset_split[2] == 1
         return (self.get_part_dataset(0, dataset_split[0]),
                 self.get_part_dataset(dataset_split[0], dataset_split[1]),
-                self.get_part_dataset(dataset_split[1], dataset_split[2])
+                self.get_part_dataset(dataset_split[1], dataset_split[2]),
+                self.scaler
                 )
 
 
@@ -370,5 +381,4 @@ if __name__ == '__main__':
     dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
                                    in_name=["out_f", "pressure"], out_name="out_c",
                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
-                                   data_from_csv=True
-                                   )
+                                   data_from_csv=True)

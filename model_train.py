@@ -196,12 +196,12 @@ def main_train(args, logging):
 
         from southeast_ore_dataset import SoutheastOreDataset
         dataset_split = [0.6, 0.2, 0.2]
-        train_dataset, val_dataset, _ = SoutheastOreDataset(
+        train_dataset, val_dataset, _, scaler = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
             step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
             data_from_csv=args.dataset.data_from_csv,
             in_name=args.dataset.in_columns,
-            out_name=args.dataset.out_column,
+            out_name=args.dataset.out_columns,
             logging=logging,
             ctrl_solution=args.ctrl_solution,
         ).get_split_dataset(dataset_split)
