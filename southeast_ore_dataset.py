@@ -1,5 +1,4 @@
 import datetime
-from data.db_models import GmsMonitor
 import pandas as pd
 import numpy as np
 # import hydra
@@ -35,7 +34,7 @@ class SoutheastOreDataset(Dataset):
     """
 
     def __init__(self, data_dir, step_time, in_name, out_name, logging, time_range=None,
-                 db_gene=True, ctrl_solution=0):
+                 data_from_csv=True, ctrl_solution=0):
         """
 
         Args:
@@ -45,7 +44,7 @@ class SoutheastOreDataset(Dataset):
             out_name:
             logging:
             time_range:
-            db_gene:
+            data_from_csv:
             ctrl_solution: 0：什么也不做
                            1：泥层压强项增加out_length时延
                            2：泥层压强从模型输入更为模型输出
@@ -83,7 +82,7 @@ class SoutheastOreDataset(Dataset):
             self.in_columns.remove('pressure')
             self.out_column.append('pressure')
 
-        if db_gene:
+        if not data_from_csv:
             # if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
             mongodb_connect()
             self.gene_data(1, time_range)
@@ -273,6 +272,7 @@ class SoutheastOreDataset(Dataset):
 
     @cal_time
     def gene_data(self, th_id, time_range=None, unnormalized_save=True):
+        from data.db_models import GmsMonitor
         if time_range is not None:
             for i in self.point[th_id]:
                 self.unfilter_data[i] = (
@@ -370,5 +370,5 @@ if __name__ == '__main__':
     dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
                                    in_name=["out_f", "pressure"], out_name="out_c",
                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
-                                   db_gene=True
+                                   data_from_csv=True
                                    )

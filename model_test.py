@@ -115,7 +115,7 @@ def main_test(args, logging, ckpt_path):
             out_name=args.dataset.out_column,
             logging=logging,
             ctrl_solution=args.ctrl_solution,
-            db_gene=False,
+            data_from_csv=True,
         ).get_split_dataset(dataset_split)
         test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
 

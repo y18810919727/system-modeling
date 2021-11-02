@@ -27,7 +27,7 @@ class TokenEmbedding(nn.Module):
     def __init__(self, c_in, d_model):
         super(TokenEmbedding, self).__init__()
         padding = 1 if torch.__version__>='1.5.0' else 2
-        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model, 
+        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model,
                                     kernel_size=3, padding=padding, padding_mode='circular')
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -70,16 +70,16 @@ class TemporalEmbedding(nn.Module):
         self.weekday_embed = Embed(weekday_size, d_model)
         self.day_embed = Embed(day_size, d_model)
         self.month_embed = Embed(month_size, d_model)
-    
+
     def forward(self, x):
         x = x.long()
-        
+
         minute_x = self.minute_embed(x[:,:,4]) if hasattr(self, 'minute_embed') else 0.
         hour_x = self.hour_embed(x[:,:,3])
         weekday_x = self.weekday_embed(x[:,:,2])
         day_x = self.day_embed(x[:,:,1])
         month_x = self.month_embed(x[:,:,0])
-        
+
         return hour_x + weekday_x + day_x + month_x + minute_x
 
 class TimeFeatureEmbedding(nn.Module):
@@ -89,7 +89,7 @@ class TimeFeatureEmbedding(nn.Module):
         freq_map = {'h':4, 't':5, 's':6, 'm':1, 'a':1, 'w':2, 'd':3, 'b':3}
         d_inp = freq_map[freq]
         self.embed = nn.Linear(d_inp, d_model)
-    
+
     def forward(self, x):
         return self.embed(x)
 
@@ -105,5 +105,5 @@ class DataEmbedding(nn.Module):
 
     def forward(self, x):
         x = self.value_embedding(x) + self.position_embedding(x)
-        
+
         return self.dropout(x)

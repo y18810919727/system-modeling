@@ -22,7 +22,8 @@ from scipy.stats import pearsonr
 import common
 from common import detect_download, init_network_weights
 
-os.environ["CUDA_VISIBLE_DEVICES"] = str(3)
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = str(3)
 
 
 def set_random_seed(seed):
@@ -198,7 +199,7 @@ def main_train(args, logging):
         train_dataset, val_dataset, _ = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
             step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
-            db_gene=args.dataset.offline_data,
+            data_from_csv=args.dataset.data_from_csv,
             in_name=args.dataset.in_columns,
             out_name=args.dataset.out_column,
             logging=logging,
@@ -287,6 +288,8 @@ def main_train(args, logging):
                 ckpt['epoch'] = epoch + 1
                 torch.save(ckpt, os.path.join('./', 'best.pth'))
                 torch.save(model.to(torch.device('cpu')), os.path.join('./', 'control.pkl'))
+                if args.use_cuda:
+                    model = model.cuda()
                 logging('Save ckpt at epoch = {}'.format(epoch))
 
             if epoch - best_dev_epoch > args.train.max_epochs_stop:
@@ -308,7 +311,7 @@ def main_train(args, logging):
     ))
 
 
-@hydra.main(config_path='config', config_name="config2.yaml")
+@hydra.main(config_path='config', config_name="config.yaml")
 def main_app(args: DictConfig) -> None:
     from common import SimpleLogger, training_loss_visualization
 
