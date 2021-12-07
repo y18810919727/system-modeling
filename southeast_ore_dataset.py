@@ -62,6 +62,7 @@ class SoutheastOreDataset(Dataset):
         self.raw_data = {1: pd.DataFrame(), 2: pd.DataFrame()}
         self.data_dir = os.path.join(data_dir, 'data/south_con/')
         self.logging = logging
+        self.scaler = StandardScaler()
 
         # interpolation config
         self.inter_sep = 10
@@ -107,12 +108,14 @@ class SoutheastOreDataset(Dataset):
         # merge both thickeners data
         self.data = pd.concat(self.raw_data, ignore_index=True)
 
+        # get fill_round's cutting position
         round_split = [0]
         fill_round_list = list(self.data['fill_round'])
         for i in range(1, len(fill_round_list)):
             if fill_round_list[i - 1] != fill_round_list[i]:
                 round_split.append(i)
 
+        # get sample series split position in every round series
         self.split_pos = []
         for i in range(1, len(round_split)):
             this_fill_length = round_split[i] - round_split[i - 1]
@@ -120,13 +123,7 @@ class SoutheastOreDataset(Dataset):
             for j in range(shifted_in_length, this_fill_length - self.out_length, self.window_step):
                 self.split_pos.append(round_split[i - 1] + j)
 
-        if data_from_csv:
-            self.scaler = StandardScaler()
-            self.scaler.fit(self.data.values,
-                            inpt=[self.point['name'].index(i) for i in self.in_columns],
-                            outpt=[self.point['name'].index(i) for i in self.out_columns])
-            self.data = pd.DataFrame(self.scaler.transform(self.data.values),
-                                     columns=['feed_c', 'out_c', 'feed_f', 'out_f', 'pressure', 'fill_round'])
+        self.zScoreNormalization()
 
     def linear_interpolation(self, data, start_time, end_time=None):
         """
@@ -156,6 +153,11 @@ class SoutheastOreDataset(Dataset):
             else:
                 self.logging('error')
         return pd.DataFrame(return_data)
+
+    def pd_aggregation(self, data, start_time, end_time=None):
+        dense_series_1s = data[start_time:end_time].resample('1S').interpolate("linear")
+        series_1m = dense_series_1s.groupby(pd.Grouper(freq='1Min')).aggregate(np.mean)
+        return series_1m
 
     @cal_time
     def get_filling_range(self, key):
@@ -205,17 +207,18 @@ class SoutheastOreDataset(Dataset):
             data_c_3 = self.unfilter_data[self.point[key][1]][t[0]:t[1]]
             c_delta = data_c_3['value'].diff()
             WIN_SIZE = 10
-            MAX_GENERAL_DT = 5
-            WATCHING_WINS = len(c_delta) / 2
+            max_general_dt = 5
+            WATCHING_WINS = int(len(c_delta) / 2)
             aggr_delta = [c_delta[i:i + WIN_SIZE].sum() for i in range(1, len(c_delta) - WIN_SIZE)]
-            for i in range(len(aggr_delta)):
-                if max(aggr_delta[i:i + WATCHING_WINS]) < MAX_GENERAL_DT:
+            for i in range(len(aggr_delta) - WATCHING_WINS):
+                if max(aggr_delta[i:i + WATCHING_WINS]) < max_general_dt:
                     start_time = data_c_3['time'][i]
                     break
             else:
                 continue
+            end_time = data_c_3['time'][-1]
             for i in range(len(aggr_delta) - 1, 0, -1):
-                if max(aggr_delta[i - WATCHING_WINS:i]) < MAX_GENERAL_DT:
+                if max(aggr_delta[i - WATCHING_WINS:i]) < max_general_dt:
                     end_time = data_c_3['time'][i + WIN_SIZE]
                 break
             else:
@@ -225,15 +228,12 @@ class SoutheastOreDataset(Dataset):
         c_f_c_range = list(filter(lambda t: (t[1] - t[0]).seconds > 3600, c_f_c_range))
         return c_f_c_range
 
-    def zScoreNormalization(self, th_id, df):
-
-        for inx, point_id in enumerate(self.point[th_id]):
-            mean = df[point_id].mean()
-            std = df[point_id].std()
-            df[point_id] = df[point_id].apply(lambda x: (x - mean) / std)
-            self.logging(
-                f'#{th_id} thickener {self.point["name"][inx]} std is {round(std, 4)}, mean is {round(mean, 4)}')
-        return df
+    def zScoreNormalization(self):
+        self.scaler.fit(self.data.values,
+                        inpt=[self.point['name'].index(i) for i in self.in_columns],
+                        outpt=[self.point['name'].index(i) for i in self.out_columns])
+        self.data = pd.DataFrame(self.scaler.transform(self.data.values),
+                                 columns=['feed_c', 'out_c', 'feed_f', 'out_f', 'pressure', 'fill_round'])
 
     def get_time_end(self, th_id, time_range):
         time_list = []
@@ -250,20 +250,23 @@ class SoutheastOreDataset(Dataset):
         return max(time_list)
 
     @cal_time
-    def save_csv(self, th_id, point_df, unnormalized=False):
+    def save_csv(self, th_id, point_df):
         round_count = int(max(point_df['fill_round'])) + 1
         path = self.data_dir
         file_name = "{key}-{round_count}-{data_count}.csv". \
             format(key=th_id,
                    round_count=round_count,
                    data_count=point_df.shape[0])
-        if unnormalized:
-            file_name = file_name[:-4] + "-unnormalized.csv"
+        file_name = file_name[:-4] + "-unnormalized.csv"
         if not os.path.exists(path):
             os.makedirs(path)
         point_df.to_csv(path + file_name)
 
     def read_csv(self):
+        """
+        读取未归一化的数据
+        :return:
+        """
         for filename in os.listdir(self.data_dir):
             if filename.count('-') != 3:
                 continue
@@ -281,7 +284,7 @@ class SoutheastOreDataset(Dataset):
         return repeat_df
 
     @cal_time
-    def gene_data(self, th_id, time_range=None, unnormalized_save=True):
+    def gene_data(self, th_id, time_range=None):
         from data.db_models import GmsMonitor
         if time_range is not None:
             for i in self.point[th_id]:
@@ -306,7 +309,7 @@ class SoutheastOreDataset(Dataset):
                 start_time = self.get_time_start(th_id, t)
                 end_time = self.get_time_end(th_id, t)
                 df_data = self.unfilter_data[point_id].loc[start_time:end_time]
-                df_data = self.linear_interpolation(df_data, start_time=start_time, end_time=end_time)
+                df_data = self.pd_aggregation(df_data, start_time=start_time, end_time=end_time)
 
                 df_data = df_data.rename(columns={'value': point_id})
                 df_list.append(df_data)
@@ -316,10 +319,6 @@ class SoutheastOreDataset(Dataset):
                 df_merge = df_merge.merge(df_list[i + 1], on='time')
             df_merge['fill_round'] = inx + self.already_filled_round
             all_df = all_df.append(df_merge)
-        #     TODO: 未归一化数据标签未rename，无法合并
-        if unnormalized_save:
-            self.save_csv(th_id, all_df, unnormalized=True)
-        all_df = self.zScoreNormalization(th_id, all_df)
         all_df.rename(columns={self.point[th_id][i]: self.point['name'][i] for i in range(len(self.point['name']))},
                       inplace=True)
         self.raw_data[th_id] = all_df
@@ -381,4 +380,4 @@ if __name__ == '__main__':
     dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
                                    in_name=["out_f", "pressure"], out_name="out_c",
                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
-                                   data_from_csv=True)
+                                   data_from_csv=False)

@@ -104,3 +104,17 @@ class StandardScaler():
         mean = mean[..., -data.shape[-1]:]
         std = std[..., -data.shape[-1]:]
         return (data * std) + mean
+
+    def inverse_transform_input(self, data):
+        mean = torch.from_numpy(self.input_mean).type_as(data).to(data.device) if torch.is_tensor(data) else self.input_mean
+        std = torch.from_numpy(self.input_std).type_as(data).to(data.device) if torch.is_tensor(data) else self.input_std
+        mean = mean[..., -data.shape[-1]:]
+        std = std[..., -data.shape[-1]:]
+        return (data * std) + mean
+
+    def inverse_transform_output(self, data):
+        mean = torch.from_numpy(self.output_mean).type_as(data).to(data.device) if torch.is_tensor(data) else self.output_mean
+        std = torch.from_numpy(self.output_std).type_as(data).to(data.device) if torch.is_tensor(data) else self.output_std
+        mean = mean[..., -data.shape[-1]:]
+        std = std[..., -data.shape[-1]:]
+        return (data * std) + mean
