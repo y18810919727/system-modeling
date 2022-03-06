@@ -12,11 +12,11 @@ from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split
 from model.common import DiagMultivariateNormal as MultivariateNormal
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
 
-class VRNN(nn.Module):
+class RSSM(nn.Module):
 
     def __init__(self, input_size, state_size, observations_size, net_type='rnn', k=16, num_layers=1, D=5):
 
-        super(VRNN, self).__init__()
+        super(RSSM, self).__init__()
 
         self.k = k
         self.D = D
@@ -37,8 +37,8 @@ class VRNN(nn.Module):
         self.process_z = PreProcess(state_size, k)
 
         self.posterior_gauss = DBlock(3*k, 3*k, state_size)
-        self.prior_gauss = DBlock(k+k, 3*k, state_size)
-        self.decoder = DBlock(2*k, 3*k, observations_size)
+        self.prior_gauss = DBlock(3*k, 3*k, state_size)
+        self.decoder = DBlock(3*k, 3*k, observations_size)
 
         # self.state_mu = None
         # self.state_logsigma = None
@@ -53,9 +53,9 @@ class VRNN(nn.Module):
         self.memory_state = None
         self.rnn_hidden_state_seq = None
 
-    def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
+    def forward_prior(self, external_input_seq, observations_seq, memory_state=None):
         """
-        训练时：估计隐变量后验分布，并采样，用于后续计算模型loss
+        训练时：估计隐变量先验分布，并采样，用于后续计算模型loss
         测试时: 为后续执行forward_prediction计算memory_state(h, rnn_hidden)
         Args:
             external_input_seq: 系统输入序列(进出料浓度、流量) (len, batch_size, input_size)
@@ -75,6 +75,11 @@ class VRNN(nn.Module):
             zeros_like_with_shape(external_input_seq, (batch_size, self.k)),
             zeros_like_with_shape(external_input_seq, (self.num_layers, batch_size, self.k))
         ) if memory_state is None else (memory_state['hn'], memory_state['rnn_hidden'])
+        # 构建SMM网络的初始隐状态和s,如果memory_state里有，从memory_state里拿
+        s, ssm_hidden_state = (
+            zeros_like_with_shape(external_input_seq, (batch_size, self.k)),
+            zeros_like_with_shape(external_input_seq, (self.num_layers, batch_size, self.k))
+        ) if memory_state is None else (memory_state['sn'], memory_state['ssm_hidden'])
 
         state_mu = []
         state_logsigma = []
@@ -84,8 +89,8 @@ class VRNN(nn.Module):
         for t in range(l):
 
             # 估计每一时刻t下，z的后验分布
-            z_t_mean, z_t_logsigma = self.posterior_gauss(
-                torch.cat([observations_seq_embed[t], external_input_seq_embed[t], h], dim=-1)
+            z_t_mean, z_t_logsigma = self.prior_gauss(
+                torch.cat([z, external_input_seq_embed[t], h], dim=-1)
             )
             # 从分布做采样得到z_t
             z_t = normal_differential_sample(
@@ -120,7 +125,7 @@ class VRNN(nn.Module):
             'external_input_seq_embed': external_input_seq_embed,
             'rnn_hidden_state_seq': rnn_hidden_state_seq
         }
-        return outputs, {'hn': h, 'rnn_hidden': rnn_hidden_state}
+        return outputs, {'hn': h, 'rnn_hidden': rnn_hidden_state, 'sn': s, 'ssm_hidden': ssm_hidden_state}
 
     def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
         """

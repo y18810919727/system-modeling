@@ -2,7 +2,7 @@
 type: vrnn
 state_size: 8
 net_type: gru
-k_size: 32
+k_size: 16   #16
 num_layers: 1
 D: 5
 

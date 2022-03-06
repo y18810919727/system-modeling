@@ -68,7 +68,7 @@ def cem_planning():     # Cem规划控制
 
         if args.algorithm.name == 'cem':
             cem_config = args.algorithm
-            planner = CEMPlanning(set_point, args.input_dim, args.output_dim, cem_config.length, num_samples=cem_config.num_samples, max_iters=cem_config.max_iters, device=controller_info['device'], time=systime)
+            planner = CEMPlanning(set_point, args.input_dim, args.output_dim, args.init_action, cem_config.length, num_samples=cem_config.num_samples, max_iters=cem_config.max_iters, device=controller_info['device'], time=systime)
         elif args.algorithm.name == 'test':
             test_config = args.algorithm
             planner = TestController(set_point, args.input_dim, args.output_dim,
@@ -77,15 +77,17 @@ def cem_planning():     # Cem规划控制
         else:
             raise NotImplementedError
 
-        new_dist, action_f = planner.solve(controller_info['model'], memory_state, last_seq_distribution=controller_info['last_seq_distribution'])
+        new_dist, action_f, u_f = planner.solve(controller_info['model'], memory_state, last_seq_distribution=controller_info['last_seq_distribution'])
         # action_f 为cem loss最小的动作序列的均值
         controller_info['last_seq_distribution'] = new_dist
         # TODO: 不要出现for循环
         action_sample = [float(action_f[x]) for x in range(0, len(action_f))]   # action_f转numpy
+        u_sample = [float(action_f[x]) for x in range(0, len(action_f))]        # u_f转numpy
         time_used = time.perf_counter() - begin_time
 
         response_dict = {
             'planning_action': action_sample,   # action_f转list //v_out
+            'planning_delta_action': u_sample,  # delta at
             'time_usage': '{}s'.format(time_used),
         }
         response_dict.update(get_basic_info())
@@ -155,7 +157,7 @@ def control_service_start(args: DictConfig):
         raise RuntimeError('cuda %s invalid device ordinal' % args.cuda)
 
     device = torch.device("cuda:{}".format(str(args.cuda)) if torch.cuda.is_available() and args.cuda != -1 else "cpu")
-    model_path = os.path.join(hydra.utils.get_original_cwd(), 'control', 'model', args.model)
+    model_path = os.path.join(hydra.utils.get_original_cwd(), 'model', args.model)
     model = torch.load(model_path, map_location=device)
     model = model.to(device)
     model.eval()

@@ -1,0 +1,10 @@
+cuda: 0 # GPU ID, -1 for CPU
+controlled_ids: all # The controlled ids in outputs, all or [a1,a2..am] 0<=ai<output_dim.
+default_set_point: 10 # The size of set_point should be equal to controlled_ids
+debug: False
+process_value: # currency value of the target variable
+max: 300 # max value of the manipulated variable
+min: 0 # min value of the manipulated variable
+port: 6010 # The port of controlling service
+defaults:
+  - algorithm: pid # Controlling algorithm

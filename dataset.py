@@ -171,6 +171,43 @@ class CstrDataset(Dataset):
         # return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
         return np.expand_dims(data_in, axis=1), data_out
 
+class IBDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        df_split_all = []
+        begin_pos = []
+        self.mean = 0.0
+        self.std = 0.0
+        # 每个column对应的数据含义 ['delta_v', 'delta_g', 'delta_h','f','c', 'reward']
+        self.df = df
+        self.used_columns = ['delta_v', 'delta_g', 'delta_h', 'v', 'g', 'h', 'f', 'c', 'reward']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        self.mean = df.mean()
+        self.std = df.std()
+
+        return (df - self.mean) / self.std
+
+    def normalize_record(self):
+        mean = self.mean
+        std = self.std
+        return [mean, std]
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df[['delta_v','delta_g','delta_h']], dtype=np.float32)
+        data_out = np.array(data_df[['v','g','h','f', 'c', 'reward']], dtype=np.float32)
+        # return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+        return data_in, data_out
+
 
 class WindingDataset(Dataset):
     def __init__(self, df, length=1000, step=5):

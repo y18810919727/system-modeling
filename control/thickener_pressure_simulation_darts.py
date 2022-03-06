@@ -14,7 +14,8 @@ from common import detect_download
 from control.scale import Scale
 from matplotlib import pyplot as plt
 from common import normal_interval
-
+from darts import TimeSeries
+from darts.models import RNNModel, BlockRNNModel
 
 class ThickenerPressureSimulation:
 
@@ -57,9 +58,6 @@ class ThickenerPressureSimulation:
         '''
         self.memory_state = None
         self.simulation_state_list = []
-        # self.figs_path = os.path.join(os.getcwd(), 'control/figs/', time.strftime('%Y-%m-%d_%H_%M_%S',time.localtime(time.time())))
-        # if not os.path.exists(self.figs_path):
-        #     os.makedirs(self.figs_path)
         self.figs_path = figs_path
 
     def step(self, planning_action):
@@ -121,7 +119,6 @@ class ThickenerPressureSimulation:
                 plt.ylabel("control_value")
                 plt.legend()
                 try:
-                    # TODO: 此处string + int 会 报错
                     plt.savefig(
                         os.path.join(self.figs_path, 'simulation_'+str(pos)+'_'+str(self.border)+'_.png')
                     )

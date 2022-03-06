@@ -1,0 +1,22 @@
+R: 400 # Rounds for Test
+model: ib_vrnn_5_1026.pkl # model
+simulation: ib_vrnn_5_1026.pkl # ckpt path of simulation model
+planning: ib_vrnn_5_1026.pkl # ckpt path of planning model
+ip: localhost # ckpt path of planning model
+v: False
+service: False
+cuda: 0 # GPU ID
+length: 50 # The length of optimized sequence for planning
+num_samples: 32 # The number of samples in CEM planning
+num_iters: 32 # Random seed in experiment
+random_seed: 1 # Random seed in experiment
+dataset: ./data/ib # The simulated dateset
+input_dim: 3 # input_dim of model
+output_dim: 3 # output_dim of model
+used_columns: ['v', 'g', 'h','f','c', 'reward'] # data's columns
+set_value: [-1,-1,1] # The set_value of control  [number of output_dim; number of input_dim]
+port: 6010 #  The number of iters in CEM planning
+debug: False
+
+use_benchmark: True # Use benchmark or not
+benchmark: "ib" # The benchmark

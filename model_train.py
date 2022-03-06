@@ -13,7 +13,7 @@ import sys
 import pandas
 import pandas as pd
 
-from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
+from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
 from torch.utils.data import DataLoader
 from common import init_network_weights
 import hydra
@@ -68,6 +68,7 @@ def test_net(model, data_loader, args):
 
 def main_train(args, logging):
     # 设置随机种子，便于时间结果复现
+    global scale
     set_random_seed(args.random_seed)
 
     # 根据args的配置生成模型
@@ -168,6 +169,22 @@ def main_train(args, logging):
         val_dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type.startswith('ib'):
+        objects = pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), 'data/ib/data_url.csv')
+        )
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/ib')
+        if not os.path.exists(base):
+            os.mkdir(base)
+        train_dataset = IBDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
+        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        val_dataset = IBDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
+        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        scale = train_dataset.normalize_record()
+
 
     elif args.dataset.type.startswith('winding'):
         objects = pd.read_csv(
@@ -280,6 +297,7 @@ def main_train(args, logging):
                 ckpt = dict()
                 ckpt['model'] = model.state_dict()
                 ckpt['epoch'] = epoch + 1
+                ckpt['scale'] = scale    # 记录训练数据的均值和方差用于控制部分归一化和反归一化
                 torch.save(ckpt, os.path.join('./', 'best.pth'))
                 torch.save(model.to(torch.device('cpu')), os.path.join('./', 'control.pkl'))
                 logging('Save ckpt at epoch = {}'.format(epoch))
@@ -288,6 +306,8 @@ def main_train(args, logging):
                 logging('Early stopping at epoch = {}'.format(epoch))
                 break
 
+            if args.use_cuda:             # TODO: 模型训练一轮过后model会自动转移到cpu中，问题原因？
+                model = model.cuda()
         # Update learning rate
         scheduler.step()  # 更新学习率
 

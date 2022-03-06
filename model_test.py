@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
-from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset
+from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
 import traceback
 from matplotlib import pyplot as plt
 import hydra
@@ -84,7 +84,7 @@ def main_test(args, logging, ckpt_path):
         test_size = len(data_csvs) - train_size - val_size
         dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
                                  args.dataset.dataset_window, dilation=args.dataset.dilation)
-        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
 
     elif args.dataset.type == 'west_con':
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
@@ -95,24 +95,31 @@ def main_test(args, logging, ckpt_path):
         test_size = len(data_csvs) - train_size - val_size
         dataset = WesternConcentrationDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
                                               args.dataset.dataset_window, dilation=args.dataset.dilation)
-        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
+
+    elif args.dataset.type == 'ib':
+        dataset = IBDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        test_loader = DataLoader(dataset, batch_size=128, shuffle=False, num_workers=args.train.num_workers)
+
     elif args.dataset.type == 'winding':
         dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'southeast':
         dataset_split = [0.6, 0.2, 0.2]
         _, _, dataset = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
             step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step]
         ).get_split_dataset(dataset_split)
-        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.train.num_workers)
+        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
 
     else:
         raise NotImplementedError
@@ -324,7 +331,8 @@ def main_app(args: DictConfig) -> None:
     if not hasattr(args, 'save_dir'):
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
-    ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vrnn_/2021-06-07_10-52-18'
+    # ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vrnn_/2021-06-07_10-52-18'
+    ckpt_path = '/data/zhangzixuan/SE-VAE/ckpt/ib/vrnn/vrnn_model.D=5/2021-11-15_09-12-31'
     logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
     try:
         with torch.no_grad():

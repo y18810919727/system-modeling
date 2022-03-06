@@ -131,6 +131,7 @@ scripts/tmp/*
 /log.out
 /typescript
 /tmp/
+/control/outputs/
 
 /data/south_con/*.csv
 !/data/south_con/*urls.csv
