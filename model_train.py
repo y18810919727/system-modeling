@@ -4,6 +4,8 @@ import numpy as np
 import math
 import os
 import json
+import traceback
+
 
 import torch
 import time
@@ -15,6 +17,7 @@ import pandas as pd
 
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
 from torch.utils.data import DataLoader
+from lib import util
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import traceback
@@ -69,7 +72,7 @@ def test_net(model, data_loader, args):
 
 
 def main_train(args, logging):
-    # 设置随机种子，便于时间结果复现
+    # 设置随机种子，便于结果复现
     global scale
     set_random_seed(args.random_seed)
 
@@ -336,9 +339,26 @@ def main_train(args, logging):
 def main_app(args: DictConfig) -> None:
     from common import SimpleLogger, training_loss_visualization
 
-    # Model Training
     logging = SimpleLogger('./log.out')
+
+    # region loading the specific model configuration (config/paras/{dataset}/{model}.yaml)
+    model_dataset_config = util.load_DictConfig(
+        os.path.join(hydra.utils.get_original_cwd(), 'config', 'paras', args.dataset.type),
+        args.model.type + '.yaml'
+    )
+    if model_dataset_config is None:
+        logging(f'Can not find model config file {args.model.type}.yaml in config/paras/{args.dataset.type}, '
+                f'loading default model config')
+    else:
+        args.model = model_dataset_config
+    # endregion
+
+    # Save args for running model_test.py individually
+    util.write_DictConfig('./', 'exp.yaml', args)
+
     logging(OmegaConf.to_yaml(args))
+
+    # Model Training
     try:
         main_train(args, logging)
         training_loss_visualization('./')

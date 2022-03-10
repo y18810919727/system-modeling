@@ -1,6 +1,7 @@
 random_seed: ~
 use_cuda: yes
 mode: train
+sample_tp: 1
 history_length: 180
 forward_length: 60
 save_dir: tmp
@@ -15,6 +16,7 @@ train:
 test:
   plt_cnt: 20
   test_dir: ~
+  batch_size: 32
 
 defaults:
   - model: vaecl

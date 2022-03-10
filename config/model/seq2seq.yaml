@@ -1,4 +1,3 @@
-# @package _group_
 type: seq2seq
 state_size: 32
 k_size: 32

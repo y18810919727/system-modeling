@@ -1,4 +1,3 @@
-# @package _group_
 type: informer
 d_model: 64
 n_heads: 8
