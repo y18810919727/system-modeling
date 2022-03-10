@@ -16,6 +16,7 @@ train:
 test:
   plt_cnt: 20
   test_dir: ~
+  batch_size: 32
 
 defaults:
   - model: vaecl

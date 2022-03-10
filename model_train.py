@@ -72,7 +72,7 @@ def test_net(model, data_loader, args):
 
 
 def main_train(args, logging):
-    # 设置随机种子，便于时间结果复现
+    # 设置随机种子，便于结果复现
     global scale
     set_random_seed(args.random_seed)
 
@@ -339,21 +339,26 @@ def main_train(args, logging):
 def main_app(args: DictConfig) -> None:
     from common import SimpleLogger, training_loss_visualization
 
-    # Model Training
     logging = SimpleLogger('./log.out')
 
-    model_dataset_config = util.load_yaml(
+    # region loading the specific model configuration (config/paras/{dataset}/{model}.yaml)
+    model_dataset_config = util.load_DictConfig(
         os.path.join(hydra.utils.get_original_cwd(), 'config', 'paras', args.dataset.type),
-        args.model.type
+        args.model.type + '.yaml'
     )
     if model_dataset_config is None:
         logging(f'Can not find model config file {args.model.type}.yaml in config/paras/{args.dataset.type}, '
                 f'loading default model config')
     else:
         args.model = model_dataset_config
+    # endregion
+
+    # Save args for running model_test.py individually
+    util.write_DictConfig('./', 'exp.yaml', args)
 
     logging(OmegaConf.to_yaml(args))
 
+    # Model Training
     try:
         main_train(args, logging)
         training_loss_visualization('./')
@@ -378,10 +383,4 @@ def main_app(args: DictConfig) -> None:
 
 
 if __name__ == '__main__':
-    try:
-        main_app()
-    except hydra.errors.MissingConfigException as e:
-        traceback.print_exc(e)
-        print('Please ensure the config file {model}-{dataset} exists in config/paras/. \n'
-              'You')
-
+    main_app()

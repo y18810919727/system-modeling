@@ -263,7 +263,7 @@ class VRNN(nn.Module):
                 merge_first_two_dims(rnn_hidden_state_seq).contiguous().transpose(1, 0)
             )
             rnn_hidden_state_seq = split_first_dim(rnn_hidden_state.contiguous().transpose(1, 0), (length, batch_size))[:-1]
-            predicted_h = predicted_h[:-1]
+            predicted_h = split_first_dim(output.squeeze(dim=0), (length, batch_size))[:-1]
             # endregion
 
         kl_sum = kl_sum/D

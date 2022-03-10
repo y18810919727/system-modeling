@@ -9,6 +9,7 @@ import time
 
 import pandas as pd
 import numpy as np
+from lib import util
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
 from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
@@ -46,6 +47,7 @@ def main_test(args, logging, ckpt_path):
         model = model.cuda()
     model.eval()
     logging(model)
+
     if args.dataset.type == 'fake':
         test_df = pd.read_csv(hydra.utils.get_original_cwd(), 'data/fake_test.csv')
         dataset = FakeDataset(test_df)
@@ -350,9 +352,21 @@ def main_app(args: DictConfig) -> None:
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
     # ckpt_path = '/code/SE-VAE/ckpt/southeast/seq2seq/seq2seq_ctrl_solution=2/2021-06-12_23-06-08'
-    ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vaecl_/2021-06-18_20-52-31'
+    # ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vaecl_/2021-06-18_20-52-31'
+    ckpt_path = args.save_dir
 
     logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
+
+    # region load the config of original model
+    exp_config = util.load_DictConfig(
+        ckpt_path,
+        'exp.yaml'
+    )
+    if exp_config is not None:
+        args = exp_config
+
+    # endregion
+
     try:
         with torch.no_grad():
             main_test(args, logging, ckpt_path)
