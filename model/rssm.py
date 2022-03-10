@@ -7,7 +7,7 @@ from torch.distributions import Normal
 
 from model.common import DBlock, PreProcess
 from model.common import DiagMultivariateNormal as MultivariateNormal
-from common import logsigma2cov
+from common import logsigma2cov, split_first_dim, merge_first_two_dims
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
 """Deterministic and stochastic state model.
 
@@ -40,24 +40,9 @@ class RSSM(nn.Module):
         min_stddev is added to stddev same as original implementation
         Activation function for this class is F.relu same as original implementation
     """
-    def __init__(self, input_size, state_size, observations_size, min_stddev=0.1, act=F.tanh, k=16,
-                 num_layers=1, D=1):
+    def __init__(self, input_size, state_size, observations_size, k=16, num_layers=1, D=1):
 
         super(RSSM, self).__init__()
-        # rnn_hidden_dim=hidden_dim=k
-
-        # self.state_dim = state_dim
-        # self.action_dim = action_dim
-        # self.rnn_hidden_dim = rnn_hidden_dim
-        # self.fc_state_action = nn.Linear(state_size + input_size, k)
-        # self.fc_rnn_hidden = nn.Linear(k, k)
-        # self.fc_state_mean_prior = nn.Linear(hidden_dim, state_dim)
-        # self.fc_state_stddev_prior = nn.Linear(hidden_dim, state_dim)
-        # self.fc_rnn_hidden_embedded_obs = nn.Linear(2*k, 2*k)  #??
-        # self.fc_state_mean_posterior = nn.Linear(hidden_dim, state_dim)
-        # self.fc_state_stddev_posterior = nn.Linear(hidden_dim, state_dim)
-        # self.rnn = nn.GRUCell(hidden_dim, rnn_hidden_dim)
-        # self._min_stddev = min_stddev
 
         self.k = k
         self.observations_size = observations_size
@@ -66,8 +51,8 @@ class RSSM(nn.Module):
         self.num_layers = num_layers
         self.D = D
 
-        # self.rnn = torch.nn.GRU(k, k, num_layers)
-        self.rnn = torch.nn.GRUCell(k, k)
+        self.rnn = torch.nn.GRU(k, k, num_layers)
+        # self.rnn = torch.nn.GRUCell(k, k)
         self.process_u = PreProcess(input_size, k)
         self.process_x = PreProcess(observations_size, k)
         self.process_s = PreProcess(state_size, k)
@@ -78,7 +63,6 @@ class RSSM(nn.Module):
         self.posterior_gauss = DBlock(k, 2*k, state_size)
         self.prior_gauss = DBlock(k, 2*k, state_size)
         self.decoder = DBlock(k + state_size, 2*k, observations_size)
-        self.act = act
 
     def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
         """
@@ -89,7 +73,6 @@ class RSSM(nn.Module):
         observations_seq_embed = self.process_x(observations_seq)
         l, batch_size, _ = observations_seq.size()
 
-        # hn = None if memory_state is None else memory_state['hn']
         hn = zeros_like_with_shape(observations_seq, (batch_size, self.k)
                                    ) if memory_state is None else memory_state['hn']
 
@@ -116,7 +99,8 @@ class RSSM(nn.Module):
             # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
             hidden = self.process_state_action(
                 torch.cat([self.process_s(s_t_minus_one), external_input_seq_embed[t]], dim=-1))
-            hn = self.rnn(hidden, hn)
+            output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
+            hn = output[0]
 
             state_mu.append(s_t_mean)
             state_logsigma.append(s_t_logsigma)
@@ -158,13 +142,15 @@ class RSSM(nn.Module):
         sampled_state = []
         h_seq = [hn]
         for t in range(l):
-            # GRU网络更新ht+1  h_t+1 = f(h_t, s_t, a_t)
+
+            # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
             hidden = self.process_state_action(
                 torch.cat([self.process_s(s_t_minus_one), external_input_seq_embed[t]], dim=-1))
-            hn = self.rnn(hidden, hn)
-            hidden = hn
+            output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
+            hn = output[0]
 
             # 先验网络  p(s_t+1 | h_t+1)
+            hidden = hn
             prior_s_t_mean, prior_s_t_logsigma = self.prior_gauss(
                 hidden
             )
@@ -205,21 +191,13 @@ class RSSM(nn.Module):
         state_mu = outputs['state_mu']
         state_logsigma = outputs['state_logsigma']
 
-        hn = memory_state['hn']
-        s_t_minus_one = torch.zeros(
-            (batch_size, self.state_size), device=external_input_seq.device
-        ) if memory_state is None else memory_state['sn']
-
-        s_t_minus_one_seq = torch.cat([s_t_minus_one.unsqueeze(0), sampled_state[:-1]], dim=0)
-        # predicted_state_sampled = s_t_minus_one_seq  # [l, batch_size, state_size]
-
         kl_sum = 0
 
         predicted_h = h_seq
 
         for step in range(D):
             length = predicted_h.size()[0]
-            # 先验网络预测s_t  p(s_t | h_t)     #TODO hidden 应该用hn还是h_seq(并行化)
+            # 先验网络预测s_t  p(s_t | h_t)
             hidden = predicted_h
 
             prior_s_t_seq_mean, prior_s_t_seq_logsigma = self.prior_gauss(
@@ -239,15 +217,14 @@ class RSSM(nn.Module):
                 )
             )
 
-            predicted_h = []
             # GRU更新ht+1  h_t+1 = f(h_t, s_t, a_t)
-            for t in range(length):
-                hidden = self.process_state_action(
-                    torch.cat([self.process_s(predicted_state_sampled)[t], external_input_seq_embed[t]], dim=-1))
-                hn = self.rnn(hidden, h_seq[t])
-                predicted_h.append(hn)
+            hidden = self.process_state_action(
+                torch.cat([self.process_s(predicted_state_sampled), external_input_seq_embed[-length:]], dim=-1))
+            output, _ = self.rnn(
+                merge_first_two_dims(hidden).unsqueeze(dim=0), merge_first_two_dims(predicted_h).unsqueeze(dim=0)
+            )
 
-            predicted_h = torch.stack(predicted_h, dim=0)
+            predicted_h = split_first_dim(output[0], (length, batch_size))
             predicted_h = predicted_h[:-1]
 
         kl_sum = kl_sum/D
