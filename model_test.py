@@ -60,7 +60,6 @@ def main_test(args, logging, ckpt_path):
             os.mkdir(base)
         # 检测数据集路径，如果本地没有数据自动下载
 
-
         access_key = pd.read_csv(os.path.join(hydra.utils.get_original_cwd(), 'data', 'AccessKey.csv'))
         from common import detect_download
         data_paths = detect_download(objects,
@@ -332,7 +331,7 @@ def main_app(args: DictConfig) -> None:
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
     # ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vrnn_/2021-06-07_10-52-18'
-    ckpt_path = '/data/zhangzixuan/SE-VAE/ckpt/ib/vrnn/vrnn_model.D=5/2021-11-15_09-12-31'
+    ckpt_path = '/code/SE-VAE/ckpt/ib/vrnn/vrnn_model.D=5/2021-11-15_09-12-31'
     logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
     try:
         with torch.no_grad():

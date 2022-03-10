@@ -297,17 +297,18 @@ def main_train(args, logging):
                 ckpt = dict()
                 ckpt['model'] = model.state_dict()
                 ckpt['epoch'] = epoch + 1
-                ckpt['scale'] = scale    # 记录训练数据的均值和方差用于控制部分归一化和反归一化
+                #  ckpt['scale'] = scale    # 记录训练数据的均值和方差用于控制部分归一化和反归一化
                 torch.save(ckpt, os.path.join('./', 'best.pth'))
                 torch.save(model.to(torch.device('cpu')), os.path.join('./', 'control.pkl'))
+                logging('Save ckpt at epoch = {}'.format(epoch))
+                if args.use_cuda:
+                    model = model.cuda()
                 logging('Save ckpt at epoch = {}'.format(epoch))
 
             if epoch - best_dev_epoch > args.train.max_epochs_stop:
                 logging('Early stopping at epoch = {}'.format(epoch))
                 break
 
-            if args.use_cuda:             # TODO: 模型训练一轮过后model会自动转移到cpu中，问题原因？
-                model = model.cuda()
         # Update learning rate
         scheduler.step()  # 更新学习率
 

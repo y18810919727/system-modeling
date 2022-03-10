@@ -1,0 +1,9 @@
+# @package _group_
+type: rssm
+state_size: 8
+k_size: 32
+num_layers: 1
+D: 5
+
+
+

@@ -11,6 +11,7 @@ from model import vaeakf_combinational_linears as vaeakf_combinational_linears
 from model.srnn import SRNN
 from model.vrnn import VRNN
 from model.deepar import DeepAR
+from model.rssm import RSSM
 #from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
 
 
@@ -46,6 +47,15 @@ def generate_model(args):
             state_size=args.model.state_size,
             observations_size=args.dataset.observation_size,
             net_type=args.model.net_type,
+            k=args.model.k_size,
+            num_layers=args.model.num_layers,
+            D=args.model.D
+        )
+    elif args.model.type == 'rssm':
+        model = RSSM(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
             k=args.model.k_size,
             num_layers=args.model.num_layers,
             D=args.model.D
