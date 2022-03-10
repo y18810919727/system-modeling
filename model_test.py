@@ -114,9 +114,14 @@ def main_test(args, logging, ckpt_path):
         test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'southeast':
         dataset_split = [0.6, 0.2, 0.2]
-        _, _, dataset = SoutheastOreDataset(
+        _, _, dataset, scaler = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
-            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step]
+            step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
+            in_name=args.dataset.in_columns,
+            out_name=args.dataset.out_columns,
+            logging=logging,
+            ctrl_solution=args.ctrl_solution,
+            data_from_csv=True,
         ).get_split_dataset(dataset_split)
         test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
 
@@ -139,6 +144,8 @@ def main_test(args, logging, ckpt_path):
         for i, data in enumerate(test_loader):
 
             external_input, observation = data
+            inverse_ex_input = scaler.inverse_transform_input(external_input)
+            inverse_out = scaler.inverse_transform_output(observation)
 
             external_input = external_input.permute(1, 0, 2)
             observation = observation.permute(1, 0, 2)
@@ -208,7 +215,8 @@ def main_test(args, logging, ckpt_path):
                 prediction_pearsonr, args.dataset.target_names)])
 
             ob_rrse_info = ' '.join(
-                ['ob_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in zip(ob_rrse_single, args.dataset.target_names)])
+                ['ob_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in
+                 zip(ob_rrse_single, args.dataset.target_names)])
             pred_rrse_info = ' '.join(['pred_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in zip(
                 prediction_rrse_single, args.dataset.target_names)])
 
@@ -228,7 +236,7 @@ def main_test(args, logging, ckpt_path):
                 yield tuple([x[:, i:i + 1, :] for x in [observation, decode_observations,
                                                         decode_observation_low, decode_observation_high,
                                                         pred_observation_low, pred_observation_high,
-                                                        pred_observations_sample]] + [weight_map])
+                                                        pred_observations_sample, external_input]] + [weight_map])
 
     for i, result in enumerate(single_data_generator(acc_info)):
         if i % int(len(dataset) // args.test.plt_cnt) == 0:
@@ -236,8 +244,10 @@ def main_test(args, logging, ckpt_path):
             # 遍历每一个被预测指标
             for _ in range(len(args.dataset.target_names)):
                 observation, decode_observations, decode_observation_low, decode_observation_high, \
-                pred_observation_low, pred_observation_high, pred_observations_sample = [x[:, :, _] for x in
-                                                                                         result[:-1]]
+                pred_observation_low, pred_observation_high, pred_observations_sample = [x[:, :, _] for
+                                                                                         x in
+                                                                                         result[:-2]]
+                external_input = result[-2]
                 weight_map = result[-1]
                 target_name = args.dataset.target_names[_]
                 # region 开始画图
@@ -245,10 +255,10 @@ def main_test(args, logging, ckpt_path):
                 ##################图一:隐变量区间展示###########################
 
                 plt.subplot(221)
-                text_list = ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in
-                             zip(acc_name, acc_info)]
-                for pos, text in zip(np.linspace(0, 1, len(text_list) + 1)[:-1], text_list):
-                    plt.text(0.2, pos, text)
+                # text_list = ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in
+                #              zip(acc_name, acc_info)]
+                # for pos, text in zip(np.linspace(0, 1, len(text_list) + 1)[:-1], text_list):
+                #     plt.text(0.2, pos, text)
                 # plt.plot(observation, label='observation')
                 # plt.plot(estimate_state, label='estimate')
                 # plt.fill_between(range(len(state)), interval_low, interval_high, facecolor='green', alpha=0.2,
@@ -256,6 +266,11 @@ def main_test(args, logging, ckpt_path):
                 # if args.dataset == 'fake':
                 #     plt.plot(state, label='gt')
                 #     #plt.plot(observation)
+                external_input = external_input.detach().cpu().squeeze()
+
+                plt.plot(range(external_input.shape[0]), external_input, label=args.dataset.in_columns[0])
+                # plt.plot(range(external_input.shape[0]), external_input[:, 1])
+                plt.legend()
 
                 ##################图二:生成观测数据展示###########################
                 plt.subplot(222)
@@ -271,6 +286,10 @@ def main_test(args, logging, ckpt_path):
                 ##################图三:预测效果###########################
                 plt.subplot(223)
                 prefix_length = args.history_length
+                observation = scaler.inverse_transform_output(observation)
+                pred_observation_low = scaler.inverse_transform_output(pred_observation_low)
+                pred_observation_high = scaler.inverse_transform_output(pred_observation_high)
+                pred_observations_sample = scaler.inverse_transform_output(pred_observations_sample)
                 plt.plot(range(prefix_length), observation[:prefix_length], label='history')
                 plt.plot(range(prefix_length - 1, observation.size()[0]), observation[prefix_length - 1:], label='real')
                 plt.plot(range(prefix_length - 1, observation.size()[0]),
@@ -330,8 +349,9 @@ def main_app(args: DictConfig) -> None:
     if not hasattr(args, 'save_dir'):
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
-    # ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vrnn_/2021-06-07_10-52-18'
-    ckpt_path = '/code/SE-VAE/ckpt/ib/vrnn/vrnn_model.D=5/2021-11-15_09-12-31'
+    # ckpt_path = '/code/SE-VAE/ckpt/southeast/seq2seq/seq2seq_ctrl_solution=2/2021-06-12_23-06-08'
+    ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vaecl_/2021-06-18_20-52-31'
+
     logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
     try:
         with torch.no_grad():

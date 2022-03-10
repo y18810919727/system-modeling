@@ -6,23 +6,24 @@ import os
 import json
 
 import torch
-#from model import vaeakf_combinational_linears
+# from model import vaeakf_combinational_linears
 from model import vaeakf_combinational_linears as vaeakf_combinational_linears
 from model.srnn import SRNN
 from model.vrnn import VRNN
 from model.deepar import DeepAR
 from model.rssm import RSSM
-#from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
+# from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
 
 
 def generate_model(args):
-
     if args.model.type == 'vaecl':
-        #model = vaeakf_cl.VAEAKFCombinedLinear(
+        # model = vaeakf_cl.VAEAKFCombinedLinear(
         model = vaeakf_combinational_linears.VAEAKFCombinedLinear(
-            input_size=args.dataset.input_size,
+            input_size=args.dataset.input_size - (
+                1 if args.dataset.type == 'southeast' and args.ctrl_solution == 2 else 0),
             state_size=args.model.state_size,
-            observations_size=args.dataset.observation_size,
+            observations_size=args.dataset.observation_size + (
+                1 if args.dataset.type == 'southeast' and args.ctrl_solution == 2 else 0),
             k=args.model.posterior.k_size,
             num_layers=args.model.posterior.num_layers,
             L=args.model.L,
@@ -87,7 +88,7 @@ def generate_model(args):
             args.model.factor,
             args.model.d_model,
             args.model.n_heads,
-            args.model.e_layers, # self.args.e_layers,
+            args.model.e_layers,  # self.args.e_layers,
             args.model.d_layers,
             args.model.d_ff,
             args.model.dropout,
@@ -97,7 +98,6 @@ def generate_model(args):
             True,
             args.model.mix
         ).float()
-
     else:
         raise NotImplementedError
     return model

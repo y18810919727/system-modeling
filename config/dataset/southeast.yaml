@@ -5,7 +5,7 @@ observation_size: 1
 in_length: 30
 out_length: 10
 window_step: 5
-offline_data: yes
+data_from_csv: yes
 in_columns: ["out_f", "pressure"]
-out_column: "out_c"
+out_columns: "out_c"
 target_names: ['Output_Concentration']

@@ -15,13 +15,15 @@ import pandas as pd
 
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
 from torch.utils.data import DataLoader
-from common import init_network_weights
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import traceback
 from scipy.stats import pearsonr
 import common
-from common import detect_download
+from common import detect_download, init_network_weights
+
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = str(3)
 
 
 def set_random_seed(seed):
@@ -211,10 +213,14 @@ def main_train(args, logging):
 
         from southeast_ore_dataset import SoutheastOreDataset
         dataset_split = [0.6, 0.2, 0.2]
-        train_dataset, val_dataset, _ = SoutheastOreDataset(
+        train_dataset, val_dataset, _, scaler = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
             step_time=[args.dataset.in_length, args.dataset.out_length, args.dataset.window_step],
-            offline_data=args.dataset.offline_data
+            data_from_csv=args.dataset.data_from_csv,
+            in_name=args.dataset.in_columns,
+            out_name=args.dataset.out_columns,
+            logging=logging,
+            ctrl_solution=args.ctrl_solution,
         ).get_split_dataset(dataset_split)
 
     else:
@@ -288,7 +294,7 @@ def main_train(args, logging):
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
                 val_loss, val_rrse, val_time = test_net(model, val_loader, args)
-            logging('eval epoch = {} with loss = {:.4f} rrse = {:.4f} val_time = {:.4f}'.format(
+            logging('eval epoch = {} with loss = {:.6f} rrse = {:.4f} val_time = {:.4f}'.format(
                 epoch, val_loss, val_rrse, val_time)
             )
             if best_loss > val_loss:
@@ -300,6 +306,8 @@ def main_train(args, logging):
                 #  ckpt['scale'] = scale    # 记录训练数据的均值和方差用于控制部分归一化和反归一化
                 torch.save(ckpt, os.path.join('./', 'best.pth'))
                 torch.save(model.to(torch.device('cpu')), os.path.join('./', 'control.pkl'))
+                if args.use_cuda:
+                    model = model.cuda()
                 logging('Save ckpt at epoch = {}'.format(epoch))
                 if args.use_cuda:
                     model = model.cuda()

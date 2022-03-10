@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.informer.utils.masking import TriangularCausalMask, ProbMask
+# from model.informer.utils.masking import TriangularCausalMask, ProbMask
 from model.informer.encoder import Encoder, EncoderLayer, ConvLayer, EncoderStack
 from model.informer.decoder import Decoder, DecoderLayer
 from model.informer.attn import FullAttention, ProbAttention, AttentionLayer
@@ -13,9 +13,9 @@ from common import logsigma2cov
 
 class Informer(nn.Module):
     def __init__(self, enc_in, dec_in, c_out, history_len, label_len, out_len,
-                factor=5, d_model=512, n_heads=8, e_layers=3, d_layers=2, d_ff=512, 
-                dropout=0.0, attn='prob', embed='fixed',activation='gelu',
-                output_attention = False, distil=True, mix=True):
+                 factor=5, d_model=512, n_heads=8, e_layers=3, d_layers=2, d_ff=512,
+                 dropout=0.0, attn='prob', embed='fixed', activation='gelu',
+                 output_attention=False, distil=True, mix=True):
         """
         Following the implementation in https://github.com/zhouhaoyi/Informer2020/blob/main/models/model.py
 
@@ -54,13 +54,13 @@ class Informer(nn.Module):
         self.enc_embedding = DataEmbedding(self.input_size + self.observation_size, d_model, embed, dropout)
         self.dec_embedding = DataEmbedding(self.dec_in, d_model, embed, dropout)
         # Attention
-        Attn = ProbAttention if attn=='prob' else FullAttention
+        Attn = ProbAttention if attn == 'prob' else FullAttention
         # Encoder
         self.encoder = Encoder(
             [
                 EncoderLayer(
-                    AttentionLayer(Attn(False, factor, attention_dropout=dropout, output_attention=output_attention), 
-                                d_model, n_heads, mix=False),
+                    AttentionLayer(Attn(False, factor, attention_dropout=dropout, output_attention=output_attention),
+                                   d_model, n_heads, mix=False),
                     d_model,
                     d_ff,
                     dropout=dropout,
@@ -70,7 +70,7 @@ class Informer(nn.Module):
             [
                 ConvLayer(
                     d_model
-                ) for _ in range(e_layers-1)
+                ) for _ in range(e_layers - 1)
             ] if distil else None,
             norm_layer=torch.nn.LayerNorm(d_model)
         )
@@ -78,10 +78,10 @@ class Informer(nn.Module):
         self.decoder = Decoder(
             [
                 DecoderLayer(
-                    AttentionLayer(Attn(True, factor, attention_dropout=dropout, output_attention=False), 
-                                d_model, n_heads, mix=mix),
-                    AttentionLayer(FullAttention(False, factor, attention_dropout=dropout, output_attention=False), 
-                                d_model, n_heads, mix=False),
+                    AttentionLayer(Attn(True, factor, attention_dropout=dropout, output_attention=False),
+                                   d_model, n_heads, mix=mix),
+                    AttentionLayer(FullAttention(False, factor, attention_dropout=dropout, output_attention=False),
+                                   d_model, n_heads, mix=False),
                     d_model,
                     d_ff,
                     dropout=dropout,
@@ -92,7 +92,7 @@ class Informer(nn.Module):
             norm_layer=torch.nn.LayerNorm(d_model)
         )
         self.projection = nn.Linear(d_model, c_out, bias=True)
-        
+
     def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
 
         l, batch_size, _ = external_input_seq.size()
@@ -103,7 +103,7 @@ class Informer(nn.Module):
 
         input_ob_seq = torch.cat([external_input_seq, observations_seq], dim=-1)
         history_seq = torch.cat([history_seq, input_ob_seq], dim=0)[-self.history_len:]
-        history_seq = history_seq
+        # history_seq = history_seq
 
         enc_out = self.enc_embedding(history_seq.transpose(1, 0))
         enc_out, attns = self.encoder(enc_out)
@@ -132,15 +132,18 @@ class Informer(nn.Module):
         enc_out = memory_state['enc_out']
         history_seq = memory_state['history_seq']
 
-        decoder_in = torch.cat([external_input_seq, torch.zeros((l, batch_size, self.observation_size), device=external_input_seq.device).float()], dim=-1)
+        decoder_in = torch.cat([external_input_seq, torch.zeros((l, batch_size, self.observation_size),
+                                                                device=external_input_seq.device).float()], dim=-1)
         decoder_in = torch.cat([history_seq, decoder_in], dim=0)[-(self.label_len + l):]
 
         decoder_out = self.dec_embedding(decoder_in.transpose(1, 0))
         decoder_out = self.decoder(decoder_out, enc_out)
         decoder_out = self.projection(decoder_out)
         predicted_seq = decoder_out.transpose(1, 0)[-l:]
-        predicted_dist = MultivariateNormal(predicted_seq, torch.diag_embed(torch.zeros_like(predicted_seq)))
-
+        predicted_dist = MultivariateNormal(
+            predicted_seq,
+            torch.diag_embed(torch.ones_like(predicted_seq) * torch.Tensor([1e-6]).to(predicted_seq.device))
+        )
         _, memory_state = self.forward_posterior(
             external_input_seq,
             predicted_seq,
@@ -193,10 +196,10 @@ class Informer(nn.Module):
         if mode == 'dist':
             # state_logsigma is -INF logsigma2cov(state_logsigma) is a zero matrix.
             observations_normal_dist = MultivariateNormal(
-                outputs['state_mu'], logsigma2cov(outputs['state_logsigma'])
+                outputs['state_mu'],
+                torch.diag_embed(torch.ones_like(outputs['state_mu']) * torch.Tensor(
+                    [1e-6]).to(outputs['state_mu'].device))
             )
             return observations_normal_dist
         elif mode == 'sample':
             return outputs['state_mu']
-
-
