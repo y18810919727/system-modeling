@@ -1,6 +1,7 @@
 random_seed: ~
 use_cuda: yes
 mode: train
+sample_tp: 1
 history_length: 180
 forward_length: 60
 save_dir: tmp

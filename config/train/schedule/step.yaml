@@ -1,4 +1,3 @@
-# @package _group_
 type: step
 step_size: 10
 gamma: 0.8

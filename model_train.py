@@ -4,6 +4,8 @@ import numpy as np
 import math
 import os
 import json
+import traceback
+
 
 import torch
 import time
@@ -15,6 +17,7 @@ import pandas as pd
 
 from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
 from torch.utils.data import DataLoader
+from lib import util
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import traceback
@@ -338,7 +341,19 @@ def main_app(args: DictConfig) -> None:
 
     # Model Training
     logging = SimpleLogger('./log.out')
+
+    model_dataset_config = util.load_yaml(
+        os.path.join(hydra.utils.get_original_cwd(), 'config', 'paras', args.dataset.type),
+        args.model.type
+    )
+    if model_dataset_config is None:
+        logging(f'Can not find model config file {args.model.type}.yaml in config/paras/{args.dataset.type}, '
+                f'loading default model config')
+    else:
+        args.model = model_dataset_config
+
     logging(OmegaConf.to_yaml(args))
+
     try:
         main_train(args, logging)
         training_loss_visualization('./')
@@ -363,4 +378,10 @@ def main_app(args: DictConfig) -> None:
 
 
 if __name__ == '__main__':
-    main_app()
+    try:
+        main_app()
+    except hydra.errors.MissingConfigException as e:
+        traceback.print_exc(e)
+        print('Please ensure the config file {model}-{dataset} exists in config/paras/. \n'
+              'You')
+

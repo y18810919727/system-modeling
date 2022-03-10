@@ -1,4 +1,3 @@
-# @package _group_
 type: srnn
 state_size: 8
 filtering: yes

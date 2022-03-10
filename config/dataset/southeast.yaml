@@ -1,4 +1,3 @@
-# @package _group_
 type: southeast
 input_size: 2
 observation_size: 1

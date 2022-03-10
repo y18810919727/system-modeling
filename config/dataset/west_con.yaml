@@ -1,4 +1,3 @@
-# @package _group_
 type: west_con
 input_size: 5
 observation_size: 2

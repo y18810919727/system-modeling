@@ -1,4 +1,3 @@
-# @package _group_
 type: sgd
 lr: 1e-2
 
