@@ -39,6 +39,8 @@ CUDA_VISIBLE_DEVICES=3 python model_test.py 'save_dir=ckpt/west/vrnn/vrnn_model.
 ## 部分参数介绍：
 - ```dataset```：```cstr, west, winding```，```data```目录下无数据时自动从aliyun的oss下载数据文件。
 
+- ```ct_time```:对数据机随机下采样，使得数据时间间隔非均匀，配合 ```sp```(下采样比率)使用。开启后，external_input会自动增加一维
+
 - ```D```:：overshooting最大距离
 
 - ```model.state_size``` ：latent state的大小
