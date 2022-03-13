@@ -9,6 +9,9 @@ import torch
 
 from torch.utils.data import DataLoader, Dataset
 from collections import defaultdict
+from common import subsample_indexes
+
+
 
 
 class FakeDataset(Dataset):
@@ -326,3 +329,28 @@ class WesternConcentrationDataset(Dataset):
         return data_in, data_out
 
 
+class CTSample:
+    def __init__(self, sp: float, base_tp=0.1):
+        self.sp = np.clip(sp, 0.01, 1.0)
+        self.base_tp = base_tp
+
+    def batch_collate_fn(self, batch):
+
+        external_input, observation = [torch.from_numpy(np.stack(x)) for x in zip(*batch)]
+        bs, l, _ = external_input.shape
+        time_steps = torch.arange(external_input.size(1)) * self.base_tp
+        data = torch.cat([external_input, observation], dim=-1)
+        new_data, tp = subsample_indexes(data, time_steps, self.sp)
+        tp = torch.cat([tp[..., 0:1], tp], dim=-1)
+        dt = tp[..., 1:] - tp[..., :-1]
+        external_input, observation = new_data[..., :external_input.shape[-1]], new_data[..., -observation.shape[-1]:]
+
+        def add_tp(x, tp):
+            return torch.cat([
+                x,
+                tp.repeat(bs, 1).unsqueeze(dim=-1)
+            ], dim=-1)
+
+        external_input = add_tp(external_input, dt)
+        # observation = add_tp(observation, dt)
+        return external_input, observation

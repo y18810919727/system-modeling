@@ -43,12 +43,13 @@ def test_net(model, data_loader, args):
     acc_rrse = 0
     acc_time = 0
     model.eval()
+    use_cuda = args.use_cuda and torch.cuda.is_available()
     for i, data in enumerate(data_loader):
 
         external_input, observation = data
         external_input = external_input.permute(1, 0, 2)
         observation = observation.permute(1, 0, 2)
-        if args.use_cuda:
+        if use_cuda:
             external_input = external_input.cuda()
             observation = observation.cuda()
 
@@ -75,13 +76,14 @@ def main_train(args, logging):
     # 设置随机种子，便于结果复现
     global scale
     set_random_seed(args.random_seed)
+    use_cuda = args.use_cuda and torch.cuda.is_available()
 
     # 根据args的配置生成模型
     from model.generate_model import generate_model
     model = generate_model(args)
 
     # 模型加载到gpu上
-    if args.use_cuda:
+    if use_cuda:
         model = model.cuda()
 
     init_network_weights(model)
@@ -190,7 +192,6 @@ def main_train(args, logging):
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
         scale = train_dataset.normalize_record()
 
-
     elif args.dataset.type.startswith('winding'):
         objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data/winding/data_url.csv')
@@ -229,11 +230,22 @@ def main_train(args, logging):
     else:
         raise NotImplementedError
 
+    # region CT domain
+    collate_fn = lambda x: x
+    try:
+        if args.ct_time:
+            from dataset import CTSample
+            ct_sample = CTSample(args.sp, args.base_tp)
+            collate_fn = ct_sample.batch_collate_fn
+    except Exception as e:
+        pass
+    # endregion
+
     # 构建dataloader
     train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size,
-                              shuffle=True, num_workers=args.train.num_workers)
+                              shuffle=True, num_workers=args.train.num_workers, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=args.train.batch_size, shuffle=False,
-                            num_workers=args.train.num_workers)
+                            num_workers=args.train.num_workers, collate_fn=collate_fn)
     best_loss = 1e12
 
     logging('make train loader successfully')
@@ -255,7 +267,7 @@ def main_train(args, logging):
             external_input = external_input.permute(1, 0, 2)
             observation = observation.permute(1, 0, 2)
 
-            if args.use_cuda:
+            if use_cuda:
                 external_input = external_input.cuda()
                 observation = observation.cuda()
 
@@ -309,10 +321,7 @@ def main_train(args, logging):
                 #  ckpt['scale'] = scale    # 记录训练数据的均值和方差用于控制部分归一化和反归一化
                 torch.save(ckpt, os.path.join('./', 'best.pth'))
                 torch.save(model.to(torch.device('cpu')), os.path.join('./', 'control.pkl'))
-                if args.use_cuda:
-                    model = model.cuda()
-                logging('Save ckpt at epoch = {}'.format(epoch))
-                if args.use_cuda:
+                if use_cuda:
                     model = model.cuda()
                 logging('Save ckpt at epoch = {}'.format(epoch))
 
@@ -347,11 +356,15 @@ def main_app(args: DictConfig) -> None:
         args.model.type + '.yaml'
     )
     if model_dataset_config is None:
-        logging(f'Can not find model config file {args.model.type}.yaml in config/paras/{args.dataset.type}, '
+        logging(f'Can not find model config file  in config/paras/{args.dataset.type}/{args.model.type}.yaml, '
                 f'loading default model config')
     else:
         args.model = model_dataset_config
     # endregion
+
+    # In continuous-time mode, the last dimension of input variable is the delta of time step.
+    if args.ct_time:
+        args.dataset.input_size += 1
 
     # Save args for running model_test.py individually
     util.write_DictConfig('./', 'exp.yaml', args)
