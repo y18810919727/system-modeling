@@ -5,7 +5,7 @@ sample_tp: 1
 history_length: 180
 forward_length: 60
 save_dir: tmp
-ct_time: yes
+ct_time: no
 sp: 0.8
 base_tp: 0.1
 ctrl_solution: 1

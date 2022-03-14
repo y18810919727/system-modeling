@@ -231,7 +231,8 @@ def main_train(args, logging):
         raise NotImplementedError
 
     # region CT domain
-    collate_fn = lambda x: x
+    # collate_fn = lambda x: x
+    collate_fn = None
     try:
         if args.ct_time:
             from dataset import CTSample
