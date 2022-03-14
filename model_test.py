@@ -51,7 +51,6 @@ def main_test(args, logging, ckpt_path):
     if args.dataset.type == 'fake':
         test_df = pd.read_csv(hydra.utils.get_original_cwd(), 'data/fake_test.csv')
         dataset = FakeDataset(test_df)
-        test_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=args.num_workers)
     elif args.dataset.type == 'west':
 
         objects = pd.read_csv(
@@ -85,7 +84,6 @@ def main_test(args, logging, ckpt_path):
         test_size = len(data_csvs) - train_size - val_size
         dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
                                  args.dataset.dataset_window, dilation=args.dataset.dilation)
-        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
 
     elif args.dataset.type == 'west_con':
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
@@ -96,24 +94,20 @@ def main_test(args, logging, ckpt_path):
         test_size = len(data_csvs) - train_size - val_size
         dataset = WesternConcentrationDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
                                               args.dataset.dataset_window, dilation=args.dataset.dilation)
-        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
 
     elif args.dataset.type == 'ib':
         dataset = IBDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=128, shuffle=False, num_workers=args.train.num_workers)
 
     elif args.dataset.type == 'winding':
         dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
-        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
     elif args.dataset.type == 'southeast':
         dataset_split = [0.6, 0.2, 0.2]
         _, _, dataset, scaler = SoutheastOreDataset(
@@ -125,10 +119,12 @@ def main_test(args, logging, ckpt_path):
             ctrl_solution=args.ctrl_solution,
             data_from_csv=True,
         ).get_split_dataset(dataset_split)
-        test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False, num_workers=args.train.num_workers)
 
     else:
         raise NotImplementedError
+
+    test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False,
+                             num_workers=args.train.num_workers, drop_last=True)
 
     logging('make test loader successfully')
     acc_loss = 0
