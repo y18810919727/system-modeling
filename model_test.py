@@ -237,9 +237,8 @@ def main_test(args, logging, ckpt_path):
         if i % int(len(dataset) // args.test.plt_cnt) == 0:
 
             observation, decode_observations, decode_observation_low, decode_observation_high, \
-            pred_observation_low, pred_observation_high, pred_observations_sample = [x for x in
-                                                                                     result[:-2]]
-            external_input = result[-2]
+            pred_observation_low, pred_observation_high, pred_observations_sample, external_input = [x for x in
+                                                                                     result[:-1]]
             # 计算单条数据的预测指标
             prefix_length = observation.size(0) - pred_observations_sample.size(0)
             variable_data_list = [
@@ -286,15 +285,26 @@ def main_test(args, logging, ckpt_path):
                 # # plt.plot(range(external_input.shape[0]), external_input[:, 1])
                 # plt.legend()
 
+                x_all = range(len(observation))
+                x_prefix = range(prefix_length)
+                x_suffix = range(prefix_length, observation.size()[0])
+                x_suffix_plus = range(prefix_length - 1, observation.size()[0])
+                if args.ct_time:
+                    x_all = torch.cumsum(external_input[x_all, 0, -1], dim=0).cpu().numpy() / args.base_tp
+                    x_prefix, x_suffix, x_suffix_plus = [x_all[x_inds] for x_inds in [x_prefix, x_suffix, x_suffix_plus]]
+
+
                 ##################图二:生成观测数据展示###########################
                 plt.subplot(222)
                 observation = observation.detach().cpu().squeeze(dim=1)
                 estimate_observation_low = decode_observation_low.cpu().squeeze().detach()
                 estimate_observation_high = decode_observation_high.cpu().squeeze().detach()
-                plt.plot(range(len(estimate_observation_low)), observation, label=target_name)
-                plt.fill_between(range(len(estimate_observation_low)), estimate_observation_low,
+                plt.plot(x_all, observation, label=target_name, zorder=2)
+                plt.fill_between(x_all, estimate_observation_low,
                                  estimate_observation_high,
-                                 facecolor='green', alpha=0.2, label='95%')
+                                 facecolor='green', alpha=0.2, label='95%', zorder=1)
+                if args.ct_time:
+                    plt.scatter(x_all, observation, s=1, c='r', zorder=3)
                 plt.legend()
 
                 ##################图三:预测效果###########################
@@ -304,17 +314,19 @@ def main_test(args, logging, ckpt_path):
                 # pred_observation_low = scaler.inverse_transform_output(pred_observation_low)
                 # pred_observation_high = scaler.inverse_transform_output(pred_observation_high)
                 # pred_observations_sample = scaler.inverse_transform_output(pred_observations_sample)
-                plt.plot(range(prefix_length), observation[:prefix_length], label='history')
-                plt.plot(range(prefix_length - 1, observation.size()[0]), observation[prefix_length - 1:], label='real')
-                plt.plot(range(prefix_length - 1, observation.size()[0]),
+                plt.plot(x_prefix, observation[:prefix_length], label='history')
+                plt.plot(x_suffix_plus, observation[prefix_length - 1:], label='real')
+                plt.plot(x_suffix_plus,
                          np.concatenate([[float(observation[prefix_length - 1])],
                                          pred_observations_sample.detach().squeeze().cpu().numpy()]),
-                         label='prediction')
+                         label='prediction', zorder=2)
 
-                plt.fill_between(range(prefix_length, observation.size()[0]),
+                plt.fill_between(x_suffix,
                                  pred_observation_low.detach().squeeze().cpu().numpy(),
                                  pred_observation_high.detach().squeeze().cpu().numpy(),
-                                 facecolor='green', alpha=0.2, label='95%')
+                                 facecolor='green', alpha=0.2, label='95%',  zorder=1)
+                if args.ct_time:
+                    plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='r', zorder=3)
                 plt.ylabel(target_name)
                 plt.legend()
 

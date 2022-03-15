@@ -75,8 +75,11 @@ class ODEVRNN(nn.Module):
         #     zeros_like_with_shape(external_input_seq, (batch_size, self.k)),
         #     zeros_like_with_shape(external_input_seq, (self.num_layers, batch_size, self.k))
         # ) if memory_state is None else (memory_state['hn'], memory_state['rnn_hidden'])
-        rnn_hidden_state = self.ode_rnn.init_hidden(batch_size, external_input_seq.device)
-        h = rnn_hidden_state[0, ..., :self.ode_rnn.latent_dim]
+        if memory_state is None:
+            rnn_hidden_state = self.ode_rnn.init_hidden(batch_size, external_input_seq.device)
+            h = rnn_hidden_state[0, ..., :self.ode_rnn.latent_dim]
+        else:
+            h, rnn_hidden_state = memory_state['hn'], memory_state['rnn_hidden']
 
         state_mu = []
         state_logsigma = []
@@ -142,8 +145,11 @@ class ODEVRNN(nn.Module):
 
         l, batch_size, _ = external_input_seq.size()
 
-        rnn_hidden_state = self.ode_rnn.init_hidden(batch_size, external_input_seq.device)
-        h = rnn_hidden_state[0, ..., :self.ode_rnn.latent_dim]
+        if memory_state is None:
+            rnn_hidden_state = self.ode_rnn.init_hidden(batch_size, external_input_seq.device)
+            h = rnn_hidden_state[0, ..., :self.ode_rnn.latent_dim]
+        else:
+            h, rnn_hidden_state = memory_state['hn'], memory_state['rnn_hidden']
 
         external_input_seq_embed = self.process_u(external_input_seq)
 

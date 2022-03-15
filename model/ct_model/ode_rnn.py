@@ -47,10 +47,10 @@ class ODE_RNN(nn.Module):
             new_h: (1, bs, 2 * latent_dim)
       """
         data, tp = data[..., :-1], data[..., -1]
-        assert data.size(-1) == self.input_dim
-
-        # Todo:目前要求batch中的每一维tp完全相同，后续实现支持batch中的tp不同
-        assert ((tp[:, 1:]-tp[:, :-1]) == 0).all()
+        # assert data.size(-1) == self.input_dim
+        #
+        # # Todo:目前要求batch中的每一维tp完全相同，后续实现支持batch中的tp不同
+        # assert ((tp[:, 1:]-tp[:, :-1]) == 0).all()
 
         tp = tp[:, 0] # batchzh
 
@@ -92,17 +92,14 @@ class ODE_RNN(nn.Module):
 
             ode_state_pre = ode_sol[-1]
             xi = data[i]
-
-            ode_states_pre.append(ode_state_pre)
-
+            # ode_states_pre.append(ode_state_pre)
             new_h = self.gru_cell(xi, torch.cat([ode_state_pre, gru_state], dim=-1))
             ode_state = new_h[..., :self.latent_dim]
             gru_state = new_h[..., :-self.latent_dim]
-
             ode_states_post.append(ode_state)
 
         ode_states_post = torch.stack(ode_states_post, dim=0)
-        ode_states_pre = torch.stack(ode_states_pre, dim=0)
+        # ode_states_pre = torch.stack(ode_states_pre, dim=0)
 
         # return ode_states_post, new_state, ode_state
         return ode_states_post, new_h.unsqueeze(dim=0)
