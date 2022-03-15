@@ -1,37 +1,33 @@
 #!/usr/bin/python
 # -*- coding:utf8 -*-
-import numpy as np
-import math
-import os
-import json
 
 import torch
 from torch import nn
-from model.common import DBlock, PreProcess, MLP
-from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
+from model.common import DBlock, PreProcess
+from common import logsigma2cov, split_first_dim, merge_first_two_dims
 from model.common import DiagMultivariateNormal as MultivariateNormal
-from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
-from ct_model.ode_rnn import ODE_RNN
+from model.func import normal_differential_sample, multivariate_normal_kl_loss
+from model.ct_model import ODE_RNN
 from model.vrnn import VRNN
 
 
-class CTVRNN(VRNN):
+class ODEVRNN(nn.Module):
 
-    def __init__(self, input_size, state_size, observations_size, net_type='ode-rnn',
-                 ode_solver='euler', k=16, num_layers=1, D=5):
+    def __init__(self, input_size, state_size, observations_size, rnn_type='ode_rnn',
+                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, rtol=1e-3, atol=1e-4):
 
-        super(CTVRNN, self).__init__()
+        super(ODEVRNN, self).__init__()
 
+        input_size = input_size - 1  # The last dimension of input variable represents dt
         self.k = k
         self.D = D
         self.observations_size = observations_size
         self.state_size = state_size
-        self.input_size = input_size - 1  # The last dimension of input variable represents dt
-        self.num_layers = num_layers
-        if net_type == 'ode-rnn':
-            self.ode_rnn = ODE_RNN(3*k, k, ode_solver=ode_solver)
+        self.input_size = input_size
+        if rnn_type == 'ode_rnn':
+            self.ode_rnn = ODE_RNN(3*k, k, ode_solver=ode_solver, ode_hidden_dim=ode_hidden_dim, rtol=rtol, atol=atol)
         else:
-            raise NotImplementedError('The posterior ct model with type %d is not implemented!' % net_type)
+            raise NotImplementedError('The posterior ct model with type %d is not implemented!' % rnn_type)
 
         self.process_u = PreProcess(input_size, k)
         self.process_x = PreProcess(observations_size, k)
@@ -100,7 +96,7 @@ class CTVRNN(VRNN):
 
             #更新rnn隐状态和h
             output, rnn_hidden_state = self.ode_rnn(torch.cat(
-                [observations_seq_embed[t], external_input_seq_embed[t], self.process_z(z_t), dt], dim=-1
+                [observations_seq_embed[t], external_input_seq_embed[t], self.process_z(z_t), dt[t]], dim=-1
             ).unsqueeze(dim=0), rnn_hidden_state)
             h = output[0]
 
@@ -171,7 +167,7 @@ class CTVRNN(VRNN):
                 MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
             )
             output, rnn_hidden_state = self.ode_rnn(torch.cat(
-                [self.process_x(x_t), external_input_seq_embed[t], z_t_embed, dt], dim=-1
+                [self.process_x(x_t), external_input_seq_embed[t], z_t_embed, dt[t]], dim=-1
             ).unsqueeze(dim=0), rnn_hidden_state)
             h = output[0]
 
@@ -210,7 +206,8 @@ class CTVRNN(VRNN):
         Returns:
         """
 
-        external_input_seq, dt = external_input_seq[..., :-1], external_input_seq[..., -1:]
+        # external_input_seq, dt = external_input_seq[..., :-1], external_input_seq[..., -1:]
+        dt = external_input_seq[..., -1:]
         outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
 
         h_seq = outputs['h_seq']
@@ -256,23 +253,43 @@ class CTVRNN(VRNN):
                 MultivariateNormal(x_t_seq_mean, logsigma2cov(x_t_seq_logsigma))
             )
 
-            # region 这几行需要深入理解，其目的是将predicted_h往前推一格，并删除掉predicted_h的最后一项
-            # rnn_hidden_state 's shape : (num_layers, length*batch_size, k)
-            output, rnn_hidden_state = self.rnn(
-                merge_first_two_dims(
-                    torch.cat(
-                        [
-                            self.process_x(x_t_seq),
-                            external_input_seq_embed[-length:],
-                            z_t_seq_embed,
-                            dt
-                        ], dim=-1
-                    )
-                ).unsqueeze(dim=0),
-                merge_first_two_dims(rnn_hidden_state_seq).contiguous().transpose(1, 0)
-            )
-            rnn_hidden_state_seq = split_first_dim(rnn_hidden_state.contiguous().transpose(1, 0), (length, batch_size))[:-1]
-            predicted_h = split_first_dim(output.squeeze(dim=0), (length, batch_size))[:-1]
+            # TODO: 实现序列并行
+            # region ct 模式下，序列不同位置的dt不同，序列并行计算较为复杂
+            # output, rnn_hidden_state = self.rnn(
+            #     merge_first_two_dims(
+            #         torch.cat(
+            #             [
+            #                 self.process_x(x_t_seq),
+            #                 external_input_seq_embed[-length:],
+            #                 z_t_seq_embed,
+            #                 dt[-length:]
+            #             ], dim=-1
+            #         )
+            #     ).unsqueeze(dim=0),
+            #     merge_first_two_dims(rnn_hidden_state_seq).contiguous().transpose(1, 0)
+            # )
+            # rnn_hidden_state_seq = split_first_dim(rnn_hidden_state.contiguous().transpose(1, 0), (length, batch_size))[:-1]
+            # predicted_h = split_first_dim(output.squeeze(dim=0), (length, batch_size))[:-1]
+            # endregion
+
+            # TODO: 未来需要删掉
+            # region ct 模式下，序列不同位置的dt不同，序列并行计算较为复杂
+            output_list, rnn_hidden_state_list = [], []
+            for i in range(length):
+                output, rnn_hidden_state = self.ode_rnn(
+                    torch.cat([
+                        self.process_x(x_t_seq[i]),
+                        external_input_seq_embed[-length:][i],
+                        z_t_seq_embed[i],
+                        dt[-length:][i]
+                    ], dim=-1).unsqueeze(dim=0), rnn_hidden_state_seq[i].transpose(1, 0)
+                )
+                # Each tensor in list: (bs, latent_dim)
+                output_list.append(output)
+                # Each tensor in list: (bs, 1, 2*latent_dim)
+                rnn_hidden_state_list.append(rnn_hidden_state.transpose(1, 0))
+            predicted_h = torch.cat(output_list, dim=0)[:-1]
+            rnn_hidden_state_seq = torch.stack(rnn_hidden_state_list)[:-1]
             # endregion
 
         kl_sum = kl_sum/D

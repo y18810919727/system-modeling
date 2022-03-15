@@ -12,7 +12,7 @@ import numpy as np
 from lib import util
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
-from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4
+from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample
 import traceback
 from matplotlib import pyplot as plt
 import hydra
@@ -129,7 +129,8 @@ def main_test(args, logging, ckpt_path):
         raise NotImplementedError
 
     test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False,
-                             num_workers=args.train.num_workers, drop_last=True)
+                             num_workers=args.train.num_workers, drop_last=True,
+                             collate_fn=CTSample(args.sp, args.base_tp).batch_collate_fn if args.ct_time else None)
 
     logging('make test loader successfully')
     acc_loss = 0
@@ -150,7 +151,6 @@ def main_test(args, logging, ckpt_path):
         for i, data in enumerate(test_loader):
 
             external_input, observation = data
-
             if args.dataset.type == 'southeast':
                 inverse_ex_input = scaler.inverse_transform_input(external_input)
                 inverse_out = scaler.inverse_transform_output(observation)
@@ -169,7 +169,7 @@ def main_test(args, logging, ckpt_path):
             decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
 
             # region Prediction
-            prefix_length = args.history_length
+            prefix_length = int(args.history_length * args.sp) if args.ct_time else args.history_length
             _, memory_state = model.forward_posterior(
                 external_input[:prefix_length], observation[:prefix_length]
             )
@@ -241,7 +241,7 @@ def main_test(args, logging, ckpt_path):
                                                                                      result[:-2]]
             external_input = result[-2]
             # 计算单条数据的预测指标
-            prefix_length = args.history_length
+            prefix_length = observation.size(0) - pred_observations_sample.size(0)
             variable_data_list = [
                 external_input,
                 observation,
@@ -299,8 +299,7 @@ def main_test(args, logging, ckpt_path):
 
                 ##################图三:预测效果###########################
                 plt.subplot(223)
-                # prefix_length = args.history_length
-                # # southeast_ore_dataset适配
+
                 # observation = scaler.inverse_transform_output(observation)
                 # pred_observation_low = scaler.inverse_transform_output(pred_observation_low)
                 # pred_observation_high = scaler.inverse_transform_output(pred_observation_high)

@@ -15,7 +15,7 @@ import sys
 import pandas
 import pandas as pd
 
-from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4
+from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample
 from torch.utils.data import DataLoader
 from lib import util
 import hydra
@@ -224,6 +224,7 @@ def main_train(args, logging):
     elif args.dataset.type.startswith('southeast'):
 
         from southeast_ore_dataset import SoutheastOreDataset
+
         dataset_split = [0.6, 0.2, 0.2]
         train_dataset, val_dataset, _, scaler = SoutheastOreDataset(
             data_dir=hydra.utils.get_original_cwd(),
@@ -238,17 +239,7 @@ def main_train(args, logging):
     else:
         raise NotImplementedError
 
-    # region CT domain
-    # collate_fn = lambda x: x
-    collate_fn = None
-    try:
-        if args.ct_time:
-            from dataset import CTSample
-            ct_sample = CTSample(args.sp, args.base_tp)
-            collate_fn = ct_sample.batch_collate_fn
-    except Exception as e:
-        pass
-    # endregion
+    collate_fn = None if not args.ct_time else CTSample(args.sp, args.base_tp).batch_collate_fn
 
     # 构建dataloader
     train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size,
@@ -282,19 +273,8 @@ def main_train(args, logging):
 
             t2 = time.time()
 
-            # region Modifying the code in training phase
-            # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
-            # # 模型forward进行隐变量后验估计
-            # Delete
-            # ----------------------------------------
-            # model.forward_posterior(external_input, observation)
-            # 计算loss
-            # loss, kl_loss, likelihood_loss = model.call_loss()
-            # ----------------------------------------
             losses = model.call_loss(external_input, observation)
             loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
-            # endregion
-            # ----------------------------------------
 
             t3 = time.time()
 

@@ -12,7 +12,7 @@ from model.srnn import SRNN
 from model.vrnn import VRNN
 from model.deepar import DeepAR
 from model.rssm import RSSM
-# from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
+from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
 
 
 def generate_model(args):
@@ -98,6 +98,21 @@ def generate_model(args):
             True,
             args.model.mix
         ).float()
+    elif args.model.type == 'ode_vrnn':
+        assert args.ct_time
+        from model.ct_model import ODEVRNN
+        model = ODEVRNN(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
+            rnn_type=args.model.rnn_type,
+            k=args.model.k_size,
+            D=args.model.D,
+            ode_hidden_dim=args.model.ode_hidden_dim,
+            ode_solver=args.model.ode_solver,
+            rtol=args.model.rtol,
+            atol=args.model.atol
+        )
     else:
         raise NotImplementedError
     return model

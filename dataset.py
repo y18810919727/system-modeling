@@ -12,8 +12,6 @@ from collections import defaultdict
 from common import subsample_indexes
 
 
-
-
 class FakeDataset(Dataset):
 
     def __init__(self, df):
