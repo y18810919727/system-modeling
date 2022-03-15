@@ -1,0 +1,6 @@
+type: west_1_4
+input_size: 1
+observation_size: 4
+dataset_window: 5
+dilation: 2
+target_names: ['c_out','c_in','v_in','Pressure']

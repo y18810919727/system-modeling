@@ -141,6 +141,33 @@ class WesternDataset(Dataset):
         return external_input, np.expand_dims(observation, axis=1)
 
 
+class WesternDataset_1_4(WesternDataset):
+
+    def __len__(self):
+        return len(self.begin_pos_pair)
+
+    def __getitem__(self, item):
+        df_index, pos = self.begin_pos_pair[item]
+        data_array = np.array(self.df_split_all[df_index].iloc[pos:pos + self.length * self.dilation], dtype=np.float32)
+        data_array = data_array[np.arange(self.length) * self.dilation]
+        # c_in = data_array[:, 0]
+        # c_out = data_array[:, 1]
+        c_in, c_out, v_out, v_in, pressure = [np.squeeze(x, axis=1) for x in np.hsplit(data_array, 5)]
+
+        external_input = v_out
+
+        observation = np.stack(
+            [
+                c_out,
+                c_in,
+                v_in,
+                pressure
+            ],
+            axis=1)
+
+        return np.expand_dims(external_input, axis=1), observation
+
+
 class CstrDataset(Dataset):
     def __init__(self, df, length=1000, step=5):
         df_split_all = []

@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 import logging
 from torch import nn
+from sklearn.metrics import mean_squared_error
 
 
 class SimpleLogger(object):
@@ -87,12 +88,12 @@ def cal_pearsonr(tensor_seq1, tensor_seq2):
     return pearsonr(seq1, seq2)[0]
 
 
-def RRSE(y_pred, y_gt):
+def RRSE(y_gt, y_pred):
     assert y_gt.shape == y_pred.shape
     if len(y_gt.shape) == 3:
         return torch.mean(
             torch.stack(
-                [RRSE(y_pred[:, i], y_gt[:, i]) for i in range(y_gt.shape[1])]
+                [RRSE(y_gt[:, i], y_pred[:, i]) for i in range(y_gt.shape[1])]
             )
         )
 
@@ -105,6 +106,81 @@ def RRSE(y_pred, y_gt):
         return torch.mean(torch.sqrt(rse))
     else:
         raise AttributeError
+
+
+def RMSE(y_gt, y_pred):
+    if len(y_gt.shape) == 3:
+        return torch.mean(
+            torch.stack(
+                [RMSE(y_gt[:, i], y_pred[:, i]) for i in range(y_gt.shape[1])]
+            )
+        )
+    elif len(y_gt.shape) == 2:
+        se = torch.sum((y_gt - y_pred) ** 2, dim=0)
+        rse = torch.sqrt(se / y_gt.shape[0])
+        return torch.mean(rse)
+    else:
+        raise AttributeError
+
+
+def Statistic(variable_data, split=False):
+    """
+    region statistic
+    Args:
+        variable_data:[
+            external_input,
+            observation,
+            pred_observations_sample,
+            decode_observations,
+            prefix_length,  # history_length
+            model
+        ]
+    Returns:
+
+    """
+    begin_time = time.time()
+    external_input, observation, pred_observations_sample, decode_observations, prefix_length, model = variable_data
+
+    losses = model.call_loss(external_input, observation)
+    loss = losses['loss']
+
+    # 统计参数1： 预测的rrse
+    prediction_rrse = RRSE(observation[prefix_length:], pred_observations_sample)
+    prediction_rrse_single = [float(RRSE(
+        observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
+    )) for _ in range(observation.shape[-1])]
+    # 统计参数2： 预测的pearson
+    prediction_pearsonr = [float(cal_pearsonr(
+        observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
+    )) for _ in range(observation.shape[-1])]
+    # 统计参数3：重构RRSE
+    ob_rrse = RRSE(
+        observation, decode_observations
+    )
+    ob_rrse_single = [float(RRSE(
+        observation[:, :, _], decode_observations[:, :, _]
+    )) for _ in range(observation.shape[-1])]
+    # 统计参数4：重构pearson
+    ob_pear = [float(cal_pearsonr(
+        observation[:, :, _], decode_observations[:, :, _]
+    )) for _ in range(observation.shape[-1])]
+
+    # 统计参数5（未实现）: 真实序列在预测分布上的似然
+
+    # 统计参数6：预测的rmse
+    prediction_rmse = RMSE(observation[prefix_length:], pred_observations_sample)
+    prediction_rmse_single = [float(RMSE(
+        observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
+    )) for _ in range(observation.shape[-1])]
+
+    end_time = time.time()
+
+    if split:
+        return np.array([float(loss), float(ob_rrse), *ob_rrse_single, *ob_pear,
+                float(prediction_rrse), *prediction_rrse_single, *prediction_pearsonr, float(prediction_rmse), *prediction_rmse_single, end_time - begin_time], dtype=np.float32)
+    else:
+        return [float(loss), float(ob_rrse), ob_rrse_single, ob_pear,
+                float(prediction_rrse), prediction_rrse_single, prediction_pearsonr, float(prediction_rmse), prediction_rmse_single, end_time - begin_time]
 
 
 def softplus(x, threshold=20):

@@ -12,12 +12,12 @@ import numpy as np
 from lib import util
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
-from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
+from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4
 import traceback
 from matplotlib import pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
-
+from common import normal_interval, Statistic
 from southeast_ore_dataset import SoutheastOreDataset
 
 
@@ -51,7 +51,8 @@ def main_test(args, logging, ckpt_path):
     if args.dataset.type == 'fake':
         test_df = pd.read_csv(hydra.utils.get_original_cwd(), 'data/fake_test.csv')
         dataset = FakeDataset(test_df)
-    elif args.dataset.type == 'west':
+
+    elif args.dataset.type.startswith('west'):
 
         objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data', 'west', 'data_url.csv')
@@ -82,8 +83,12 @@ def main_test(args, logging, ckpt_path):
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, _ = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         test_size = len(data_csvs) - train_size - val_size
-        dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
-                                 args.dataset.dataset_window, dilation=args.dataset.dilation)
+        if args.dataset.type.endswith('1_4'):
+            dataset = WesternDataset_1_4(data_csvs[-test_size:], args.history_length + args.forward_length,
+                                     args.dataset.dataset_window, dilation=args.dataset.dilation)
+        else:
+            dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
+                                     args.dataset.dataset_window, dilation=args.dataset.dilation)
 
     elif args.dataset.type == 'west_con':
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
@@ -135,15 +140,20 @@ def main_test(args, logging, ckpt_path):
                ['ob_{}_pear'.format(name) for name in args.dataset.target_names] + \
                ['pred_rrse'] + \
                ['pred_{}_rrse'.format(name) for name in args.dataset.target_names] + \
-               ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + ['time']
+               ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + \
+               ['pred_rmse'] + \
+               ['pred_{}_rmse'.format(name) for name in args.dataset.target_names] + \
+               ['time']
     acc_info = np.zeros(len(acc_name))
 
     def single_data_generator(acc_info):
         for i, data in enumerate(test_loader):
 
             external_input, observation = data
-            inverse_ex_input = scaler.inverse_transform_input(external_input)
-            inverse_out = scaler.inverse_transform_output(observation)
+
+            if args.dataset.type == 'southeast':
+                inverse_ex_input = scaler.inverse_transform_input(external_input)
+                inverse_out = scaler.inverse_transform_output(observation)
 
             external_input = external_input.permute(1, 0, 2)
             observation = observation.permute(1, 0, 2)
@@ -152,13 +162,7 @@ def main_test(args, logging, ckpt_path):
                 external_input = external_input.cuda()
                 observation = observation.cuda()
 
-            beg_time = time.time()
-            end_time = time.time()
-            losses = model.call_loss(external_input, observation)
-            loss = losses['loss']
             outputs, memory_state = model.forward_posterior(external_input, observation)
-
-            from common import cal_pearsonr, normal_interval, RRSE
 
             decode_observations_dist = model.decode_observation(outputs, mode='dist')
             decode_observations = model.decode_observation(outputs, mode='sample')
@@ -183,29 +187,17 @@ def main_test(args, logging, ckpt_path):
             pred_observation_low, pred_observation_high = normal_interval(pred_observations_dist, 2)
 
             # region statistic
+            variable_data_list = [
+                external_input,
+                observation,
+                pred_observations_sample,
+                decode_observations,
+                prefix_length,
+                model
+            ]
 
-            # 统计参数1： 预测的rrse
-            prediction_rrse = RRSE(observation[prefix_length:], pred_observations_sample)
-            prediction_rrse_single = [float(RRSE(
-                observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
-            )) for _ in range(observation.shape[-1])]
-            # 统计参数2： 预测的pearson
-            prediction_pearsonr = [float(cal_pearsonr(
-                observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
-            )) for _ in range(observation.shape[-1])]
-            # 统计参数3：重构RRSE
-            ob_rrse = RRSE(
-                observation, decode_observations
-            )
-            ob_rrse_single = [float(RRSE(
-                observation[:, :, _], decode_observations[:, :, _]
-            )) for _ in range(observation.shape[-1])]
-            # 统计参数4：重构pearson
-            ob_pear = [float(cal_pearsonr(
-                observation[:, :, _], decode_observations[:, :, _]
-            )) for _ in range(observation.shape[-1])]
-
-            # 统计参数5（未实现）: 真实序列在预测分布上的似然
+            loss, ob_rrse, ob_rrse_single, ob_pear, prediction_rrse, prediction_rrse_single,\
+            prediction_pearsonr, prediction_rmse, prediction_rmse_single, time = Statistic(variable_data_list, split=False)
 
             ob_pearson_info = ' '.join(
                 ['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
@@ -217,17 +209,22 @@ def main_test(args, logging, ckpt_path):
                  zip(ob_rrse_single, args.dataset.target_names)])
             pred_rrse_info = ' '.join(['pred_{}_rrse={:.4f}'.format(name, rrse) for rrse, name in zip(
                 prediction_rrse_single, args.dataset.target_names)])
+            pred_rmse_info = ' '.join(['pred_{}_rmse={:.4f}'.format(name, rmse) for rmse, name in zip(
+                prediction_rmse_single, args.dataset.target_names)])
 
             log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ' ' + ob_pearson_info + \
-                      ' pred_rrse={:.4f} ' + pred_rrse_info + ' ' + pred_pearson_info + ' time={:.4f}'
-            logging(log_str.format(i, float(loss),
-                                   float(ob_rrse),
+                      ' pred_rrse={:.4f} ' + pred_rrse_info + ' ' + pred_pearson_info + \
+                      ' pred_rmse={:.4f} ' + pred_rmse_info + ' time={:.4f}'
+            logging(log_str.format(i, loss,
+                                   ob_rrse,
                                    prediction_rrse,
-                                   end_time - beg_time))
+                                   prediction_rmse,
+                                   time))
 
             acc_info += np.array([
-                float(loss), float(ob_rrse), *ob_rrse_single, *ob_pear,
-                prediction_rrse, *prediction_rrse_single, *prediction_pearsonr, end_time - beg_time
+                loss, ob_rrse, *ob_rrse_single, *ob_pear,
+                prediction_rrse, *prediction_rrse_single, *prediction_pearsonr,
+                prediction_rmse, *prediction_rmse_single, time
             ], dtype=np.float32)
 
             for i in range(external_input.size()[1]):
@@ -238,6 +235,23 @@ def main_test(args, logging, ckpt_path):
 
     for i, result in enumerate(single_data_generator(acc_info)):
         if i % int(len(dataset) // args.test.plt_cnt) == 0:
+
+            observation, decode_observations, decode_observation_low, decode_observation_high, \
+            pred_observation_low, pred_observation_high, pred_observations_sample = [x for x in
+                                                                                     result[:-2]]
+            external_input = result[-2]
+            # 计算单条数据的预测指标
+            prefix_length = args.history_length
+            variable_data_list = [
+                external_input,
+                observation,
+                pred_observations_sample,
+                decode_observations,
+                prefix_length,
+                model
+            ]
+            acc_info_single = Statistic(variable_data_list, split=True)
+
 
             # 遍历每一个被预测指标
             for _ in range(len(args.dataset.target_names)):
@@ -253,10 +267,10 @@ def main_test(args, logging, ckpt_path):
                 ##################图一:隐变量区间展示###########################
 
                 plt.subplot(221)
-                # text_list = ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in
-                #              zip(acc_name, acc_info)]
-                # for pos, text in zip(np.linspace(0, 1, len(text_list) + 1)[:-1], text_list):
-                #     plt.text(0.2, pos, text)
+                text_list = ['{}={:.4f}'.format(name, value) for name, value in
+                             zip(acc_name, acc_info_single)]
+                for pos, text in zip(np.linspace(0, 1, len(text_list) + 1)[:-1], text_list):
+                    plt.text(0.2, pos, text)
                 # plt.plot(observation, label='observation')
                 # plt.plot(estimate_state, label='estimate')
                 # plt.fill_between(range(len(state)), interval_low, interval_high, facecolor='green', alpha=0.2,
@@ -264,11 +278,13 @@ def main_test(args, logging, ckpt_path):
                 # if args.dataset == 'fake':
                 #     plt.plot(state, label='gt')
                 #     #plt.plot(observation)
-                external_input = external_input.detach().cpu().squeeze()
 
-                plt.plot(range(external_input.shape[0]), external_input, label=args.dataset.in_columns[0])
-                # plt.plot(range(external_input.shape[0]), external_input[:, 1])
-                plt.legend()
+                # # southeast_ore_dateset适配
+                # external_input = external_input.detach().cpu().squeeze()
+                #
+                # plt.plot(range(external_input.shape[0]), external_input, label=args.dataset.in_columns[0])
+                # # plt.plot(range(external_input.shape[0]), external_input[:, 1])
+                # plt.legend()
 
                 ##################图二:生成观测数据展示###########################
                 plt.subplot(222)
@@ -283,11 +299,12 @@ def main_test(args, logging, ckpt_path):
 
                 ##################图三:预测效果###########################
                 plt.subplot(223)
-                prefix_length = args.history_length
-                observation = scaler.inverse_transform_output(observation)
-                pred_observation_low = scaler.inverse_transform_output(pred_observation_low)
-                pred_observation_high = scaler.inverse_transform_output(pred_observation_high)
-                pred_observations_sample = scaler.inverse_transform_output(pred_observations_sample)
+                # prefix_length = args.history_length
+                # # southeast_ore_dataset适配
+                # observation = scaler.inverse_transform_output(observation)
+                # pred_observation_low = scaler.inverse_transform_output(pred_observation_low)
+                # pred_observation_high = scaler.inverse_transform_output(pred_observation_high)
+                # pred_observations_sample = scaler.inverse_transform_output(pred_observations_sample)
                 plt.plot(range(prefix_length), observation[:prefix_length], label='history')
                 plt.plot(range(prefix_length - 1, observation.size()[0]), observation[prefix_length - 1:], label='real')
                 plt.plot(range(prefix_length - 1, observation.size()[0]),

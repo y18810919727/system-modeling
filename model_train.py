@@ -15,7 +15,7 @@ import sys
 import pandas
 import pandas as pd
 
-from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset
+from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4
 from torch.utils.data import DataLoader
 from lib import util
 import hydra
@@ -117,7 +117,7 @@ def main_train(args, logging):
         val_df = pandas.read_csv('data/fake_val.csv')
         train_dataset = FakeDataset(train_df)
         val_dataset = FakeDataset(val_df)
-    elif args.dataset.type == 'west':
+    elif args.dataset.type.startswith('west'):
         objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data', 'west', 'data_url.csv')
         )
@@ -136,12 +136,20 @@ def main_train(args, logging):
         dataset_split = [0.6, 0.2, 0.2]
         # 训练测试集的比例划分
         train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
-        train_dataset = WesternDataset(data_csvs[:train_size],
-                                       args.history_length + args.forward_length, step=args.dataset.dataset_window,
-                                       dilation=args.dataset.dilation)
-        val_dataset = WesternDataset(data_csvs[train_size:train_size + val_size],
-                                     args.history_length + args.forward_length, step=args.dataset.dataset_window,
-                                     dilation=args.dataset.dilation)
+        if args.dataset.type.endswith('1_4'):
+            train_dataset = WesternDataset_1_4(data_csvs[:train_size],
+                                           args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                           dilation=args.dataset.dilation)
+            val_dataset = WesternDataset_1_4(data_csvs[train_size:train_size + val_size],
+                                         args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                         dilation=args.dataset.dilation)
+        else:
+            train_dataset = WesternDataset(data_csvs[:train_size],
+                                           args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                           dilation=args.dataset.dilation)
+            val_dataset = WesternDataset(data_csvs[train_size:train_size + val_size],
+                                         args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                         dilation=args.dataset.dilation)
     elif args.dataset.type == 'west_con':
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
         data_csvs = [pd.read_csv(os.path.join(data_dir, file)) for file in os.listdir(data_dir)]
