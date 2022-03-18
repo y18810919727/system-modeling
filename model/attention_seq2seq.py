@@ -174,10 +174,11 @@ class AttentionSeq2Seq(nn.Module):
 
         return outputs, memory_state
 
-    def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
+    def forward_prediction(self, external_input_seq, n_traj=1, memory_state=None):
         """
 
         Args:
+            n_traj:
             external_input_seq: 输入序列 (len, batch_size, input_size)
             max_prob: 如果为False，从预测分布中随机采样，如果为True ,返回概率密度最大的估计值
             memory_state: 字典，模型记忆
@@ -202,7 +203,6 @@ class AttentionSeq2Seq(nn.Module):
             memory_state['encoder_outputs'], memory_state['encoder_hidden'], memory_state['label_seq'])
 
         decoder_hidden = encoder_hidden
-        predicted_list = []
 
         # Feeding label_seq to generate decoder_hidden, following the implementation of process_one_batch in
         # https://github.com/zhouhaoyi/Informer2020/blob/main/exp/exp_informer.py/
@@ -216,6 +216,13 @@ class AttentionSeq2Seq(nn.Module):
             )
 
         # decoder_output = torch.zeros((batch_size, self.observations_size)).to(external_input_seq.device)
+
+        predicted_seq_sample = []
+        external_input_seq = external_input_seq.repeat(1, n_traj, 1)
+        decoder_hidden = decoder_hidden.repeat(1, n_traj, 1)
+        encoder_outputs = encoder_outputs.repeat(1, n_traj, 1)
+        decoder_output = decoder_output.repeat(n_traj, 1)
+
         for di in range(l):
             decoder_input = torch.cat([external_input_seq[di], decoder_output], dim=-1).unsqueeze(0)
             decoder_output, decoder_hidden, decoder_attention = self.decoder(
@@ -223,27 +230,40 @@ class AttentionSeq2Seq(nn.Module):
                 decoder_hidden,
                 encoder_outputs
             )
-            predicted_list.append(decoder_output)
+            observation_sample = split_first_dim(decoder_output, (n_traj, batch_size))
+            observation_sample = observation_sample.permute(1, 0, 2)
+            predicted_seq_sample.append(observation_sample)
 
-        predicted_seq = torch.stack(predicted_list, dim=0)
+        predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
+        predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        predicted_dist = MultivariateNormal(
+            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
+        )
 
-        # The predicted distribution with zero covariance matrix (entropy is equal to 0)
-        predicted_dist = MultivariateNormal(predicted_seq, torch.diag_embed(
-            torch.ones_like(predicted_seq)/torch.Tensor([float(1e9)]).to(predicted_seq.device)
-        ))
-
-        input_ob_seq = torch.cat([external_input_seq, predicted_seq], dim=-1)
-
-        # Updating encoder_outputs and encoder_hidden according to predicted outputs.
-        encoder_outputs, encoder_hidden = self.seq_encoding(input_ob_seq, encoder_hidden, encoder_outputs)
+        # # The predicted distribution with zero covariance matrix (entropy is equal to 0)
+        # predicted_dist = MultivariateNormal(predicted_seq, torch.diag_embed(
+        #     torch.ones_like(predicted_seq)/torch.Tensor([float(1e9)]).to(predicted_seq.device)
+        # ))
+        #
+        # input_ob_seq = torch.cat([external_input_seq, predicted_seq], dim=-1)
+        #
+        # # Updating encoder_outputs and encoder_hidden according to predicted outputs.
+        # encoder_outputs, encoder_hidden = self.seq_encoding(input_ob_seq, encoder_hidden, encoder_outputs)
+        #
+        # memory_state = {
+        #     'encoder_outputs': encoder_outputs,
+        #     'encoder_hidden':  encoder_hidden,
+        #     'label_seq': torch.cat([label_seq, input_ob_seq], dim=0)[-self.label_length:]
+        # }
 
         memory_state = {
-            'encoder_outputs': encoder_outputs,
-            'encoder_hidden':  encoder_hidden,
-            'label_seq': torch.cat([label_seq, input_ob_seq], dim=0)[-self.label_length:]
+            'encoder_outputs': None,
+            'encoder_hidden': None,
+            'label_seq': None
         }
 
         outputs = {
+            'predicted_seq_sample': predicted_seq_sample,
             'predicted_dist': predicted_dist,
             'predicted_seq': predicted_seq
         }
@@ -281,7 +301,7 @@ class AttentionSeq2Seq(nn.Module):
         losses = {
             'loss': F.mse_loss(outputs['predicted_seq'], future_ob),
             'kl_loss': 0.0,
-            'likelihood_loss':0.0
+            'likelihood_loss': 0.0
         }
         return losses
 

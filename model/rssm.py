@@ -123,7 +123,7 @@ class RSSM(nn.Module):
 
         return outputs, {'hn': hn, 'sn': s_t_minus_one}
 
-    def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
+    def forward_prediction(self, external_input_seq, n_traj, max_prob=False, memory_state=None):
         """
         预测，先更新ht+1，再预测s_t+1
         h_t+1 = f(h_t, s_t, a_t)
@@ -139,43 +139,49 @@ class RSSM(nn.Module):
         s_t_minus_one = torch.zeros((batch_size, self.state_size),
                                     device=external_input_seq.device) if memory_state is None else memory_state['sn']
 
-        sampled_state = []
-        h_seq = [hn]
-        for t in range(l):
+        predicted_seq_sample = []
 
-            # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
-            hidden = self.process_state_action(
-                torch.cat([self.process_s(s_t_minus_one), external_input_seq_embed[t]], dim=-1))
-            output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
-            hn = output[0]
+        external_input_seq_embed = external_input_seq_embed.repeat(1, n_traj, 1)
+        s_t_minus_one = s_t_minus_one.repeat(n_traj, 1)
+        hn = hn.repeat(n_traj, 1)
 
-            # 先验网络  p(s_t+1 | h_t+1)
-            hidden = hn
-            prior_s_t_mean, prior_s_t_logsigma = self.prior_gauss(
-                hidden
-            )
+        with torch.no_grad():
+            for t in range(l):
 
-            s_t_dist = MultivariateNormal(prior_s_t_mean, logsigma2cov(prior_s_t_logsigma))
-            s_t_minus_one = normal_differential_sample(s_t_dist)
+                # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
+                hidden = self.process_state_action(
+                    torch.cat([self.process_s(s_t_minus_one), external_input_seq_embed[t]], dim=-1))
+                output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
+                hn = output[0]
 
-            sampled_state.append(s_t_minus_one)
-            h_seq.append(hn)
+                # 先验网络  p(s_t+1 | h_t+1)
+                hidden = hn
+                prior_s_t_mean, prior_s_t_logsigma = self.prior_gauss(
+                    hidden
+                )
 
-        sampled_state = torch.stack(sampled_state, dim=0)
-        h_seq = torch.stack(h_seq, dim=0)
-        h_seq = h_seq[:-1]
-        observations_dist = self.decode_observation({'sampled_state': sampled_state, 'h_seq': h_seq},
-                                                    mode='dist')
+                s_t_dist = MultivariateNormal(prior_s_t_mean, logsigma2cov(prior_s_t_logsigma))
+                s_t_minus_one = normal_differential_sample(s_t_dist)
 
-        if max_prob:
-            observations_sample = observations_dist.loc
-        else:
-            observations_sample = normal_differential_sample(observations_dist)
+                observations_dist = self.decode_observation({'sampled_state': s_t_minus_one, 'h_seq': hn},
+                                                            mode='dist')
+                observations_sample = split_first_dim(
+                    normal_differential_sample(observations_dist),
+                    (n_traj, batch_size)
+                )
+                observations_sample = observations_sample.permute(1, 0, 2)
+                predicted_seq_sample.append(observations_sample)
+
+        predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
+        predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        predicted_dist = MultivariateNormal(
+            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
+        )
 
         outputs = {
-            'sampled_state': sampled_state,
-            'predicted_dist': observations_dist,
-            'predicted_seq': observations_sample
+            'predicted_seq_sample': predicted_seq_sample,
+            'predicted_dist': predicted_dist,
+            'predicted_seq': predicted_seq
         }
         return outputs, {'hn': hn, 'sn': s_t_minus_one}
 

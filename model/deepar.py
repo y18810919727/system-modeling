@@ -88,10 +88,11 @@ class DeepAR(nn.Module):
         }
         return outputs, memory_state
 
-    def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
+    def forward_prediction(self, external_input_seq, n_traj, memory_state=None):
         """
 
         Args:
+            n_traj:
             external_input_seq: 输入序列 (len, batch_size, input_size)
             max_prob: 如果为False，从预测分布中随机采样，如果为True ,返回概率密度最大的估计值
             memory_state: 字典，模型记忆
@@ -109,37 +110,45 @@ class DeepAR(nn.Module):
             torch.zeros(self.num_layers, batch_size, self.hidden_size,
                         device=external_input_seq.device)) if memory_state is None else (
             memory_state['hidden'], memory_state['cell'])
-        state_mu = []
-        state_logsigma = []
-        for t in range(l):
-            output, (hidden, cell) = self.lstm(torch.unsqueeze(external_input_seq[t], dim=0), (hidden, cell))
-            hidden_permute = hidden.permute(1, 2, 0).contiguous().view(hidden.shape[1], -1)
-            sigma = self.distribution_presigma(hidden_permute)
-            mu = self.distribution_mu(hidden_permute)
-            state_mu.append(mu)
-            state_logsigma.append(sigma)
 
-        state_mu = torch.stack(state_mu, dim=0)
-        state_logsigma = torch.stack(state_logsigma, dim=0)
-        observations_dist = self.decode_observation(
-            {'state_mu': state_mu, 'state_logsigma': state_logsigma},
-            mode='dist'
+        predicted_seq_sample = []
+        external_input_seq = external_input_seq.repeat(1, n_traj, 1)
+        hidden = hidden.repeat(1, n_traj, 1)
+        cell = cell.repeat(1, n_traj, 1)
+
+        with torch.no_grad():
+            for t in range(l):
+                output, (hidden, cell) = self.lstm(torch.unsqueeze(external_input_seq[t], dim=0), (hidden, cell))
+                hidden_permute = hidden.permute(1, 2, 0).contiguous().view(hidden.shape[1], -1)
+                sigma = self.distribution_presigma(hidden_permute)
+                mu = self.distribution_mu(hidden_permute)
+                # state_mu.append(mu)
+                # state_logsigma.append(sigma)
+                observations_dist = self.decode_observation(
+                    {'state_mu': mu, 'state_logsigma': sigma},
+                    mode='dist'
+                )
+                observations_sample = split_first_dim(
+                    normal_differential_sample(observations_dist),
+                    (n_traj, batch_size)
+                )
+                observations_sample = observations_sample.permute(1, 0, 2)
+                predicted_seq_sample.append(observations_sample)
+
+        predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
+        predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        predicted_dist = MultivariateNormal(
+            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
         )
-
-        if max_prob:
-            observations_sample = observations_dist.loc
-        else:
-            observations_sample = normal_differential_sample(observations_dist)
 
         memory_state = {
             'hidden': hidden,
             'cell': cell
         }
         outputs = {
-            'state_mu': state_mu,
-            'state_logsigma': state_logsigma,
-            'predicted_dist': observations_dist,
-            'predicted_seq': observations_sample
+            'predicted_seq_sample': predicted_seq_sample,
+            'predicted_dist': predicted_dist,
+            'predicted_seq': predicted_seq
 
         }
         return outputs, memory_state

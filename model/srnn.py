@@ -108,7 +108,7 @@ class SRNN(nn.Module):
 
         return outputs, {'dn': dn, "zn": z_t_minus_one}
 
-    def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
+    def forward_prediction(self, external_input_seq, n_traj, memory_state=None):
 
         l, batch_size, _ = external_input_seq.size()
         d0 = None if memory_state is None else memory_state['dn']
@@ -116,29 +116,38 @@ class SRNN(nn.Module):
         external_input_seq = external_input_seq
         external_input_seq_embed = self.process_u(external_input_seq)
         d_seq, dn = self.input_rnn(external_input_seq_embed, d0)
-        sampled_state = []
-        for t in range(l):
-            prior_z_t_mean, prior_z_t_logsigma = self.prior_gauss(
-                torch.cat([z_t_minus_one, d_seq[t]], dim=-1)
-            )
-            z_t_dist = MultivariateNormal(prior_z_t_mean, logsigma2cov(prior_z_t_logsigma))
-            z_t_minus_one = normal_differential_sample(z_t_dist)
-            sampled_state.append(z_t_minus_one)
-        sampled_state = torch.stack(sampled_state, dim=0)
 
-        observations_dist = self.decode_observation({'sampled_state': sampled_state, 'd_seq': d_seq},
-                                                    mode='dist')
+        predicted_seq_sample = []
+        d_seq = d_seq.repeat(1, n_traj, 1)
+        z_t_minus_one = z_t_minus_one.repeat(n_traj, 1)
 
-        # 对观测分布采样并更新后验lstm隐状态
-        if max_prob:
-            observations_sample = observations_dist.loc
-        else:
-            observations_sample = normal_differential_sample(observations_dist)
+        with torch.no_grad():
+            for t in range(l):
+                prior_z_t_mean, prior_z_t_logsigma = self.prior_gauss(
+                    torch.cat([z_t_minus_one, d_seq[t]], dim=-1)
+                )
+                z_t_dist = MultivariateNormal(prior_z_t_mean, logsigma2cov(prior_z_t_logsigma))
+                z_t_minus_one = normal_differential_sample(z_t_dist)
+
+                observations_dist = self.decode_observation({'sampled_state': z_t_minus_one, 'd_seq': d_seq[t]},
+                                                            mode='dist')
+                observations_sample = split_first_dim(  # [n_traj, batch_size, output_dim]
+                    normal_differential_sample(observations_dist),
+                    (n_traj, batch_size)                # 不能直接按照（batch_size, n_traj）分，因为repeat是batch*n_traj,需要分成n_traj*batch（n_traj个batch_size）
+                )
+                observations_sample = observations_sample.permute(1, 0, 2)  # [batch_size, n_traj, output_dim]
+                predicted_seq_sample.append(observations_sample)
+
+        predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
+        predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        predicted_dist = MultivariateNormal(
+            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
+        )
 
         outputs = {
-            'sampled_state': sampled_state,
-            'predicted_dist': observations_dist,
-            'predicted_seq': observations_sample
+            'predicted_seq_sample': predicted_seq_sample,
+            'predicted_dist': predicted_dist,
+            'predicted_seq': predicted_seq
         }
         return outputs, {'dn': dn, 'zn': z_t_minus_one}
 

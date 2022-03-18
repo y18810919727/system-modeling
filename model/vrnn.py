@@ -36,8 +36,8 @@ class VRNN(nn.Module):
         self.process_x = PreProcess(observations_size, k)
         self.process_z = PreProcess(state_size, k)
 
-        self.posterior_gauss = DBlock(3*k, 3*k, state_size)
-        self.prior_gauss = DBlock(k+k, 3*k, state_size)
+        self.posterior_gauss = DBlock(2*k, 3*k, state_size)
+        self.prior_gauss = DBlock(k, 3*k, state_size)
         self.decoder = DBlock(2*k, 3*k, observations_size)
 
         # self.state_mu = None
@@ -85,7 +85,7 @@ class VRNN(nn.Module):
 
             # 估计每一时刻t下，z的后验分布
             z_t_mean, z_t_logsigma = self.posterior_gauss(
-                torch.cat([observations_seq_embed[t], external_input_seq_embed[t], h], dim=-1)
+                torch.cat([observations_seq_embed[t], h], dim=-1)
             )
             # 从分布做采样得到z_t
             z_t = normal_differential_sample(
@@ -122,14 +122,15 @@ class VRNN(nn.Module):
         }
         return outputs, {'hn': h, 'rnn_hidden': rnn_hidden_state}
 
-    def forward_prediction(self, external_input_seq, max_prob=False, memory_state=None):
+    def forward_prediction(self, external_input_seq, n_traj, memory_state=None):
         """
         给定模型记忆memory_state和系统外部输入序列(len,batch_size, input_size)估计系统未来输出的分布，
         并更新memory_state
 
         Args:
+            n_traj:
             external_input_seq:
-            max_prob: 从预测的系统输出分布中进行采样的方法：max_prob为True，按最大概率采样；max_prob为False，随机采样;
+            # max_prob: 从预测的系统输出分布中进行采样的方法：max_prob为True，按最大概率采样；max_prob为False，随机采样;
             memory_state:
 
         Returns:
@@ -145,56 +146,47 @@ class VRNN(nn.Module):
 
         external_input_seq_embed = self.process_u(external_input_seq)
 
-        sampled_state = []
-        h_seq = [h]
-        rnn_hidden_state_seq = [rnn_hidden_state.transpose(1, 0)]
+        predicted_seq_sample = []
 
-        for t in range(l):
+        external_input_seq_embed = external_input_seq_embed.repeat(1, n_traj, 1)
+        h = h.repeat(n_traj, 1)
+        rnn_hidden_state = rnn_hidden_state.repeat(1, n_traj, 1)
 
-            z_t_mean, z_t_logsigma = self.prior_gauss(
-                torch.cat([external_input_seq_embed[t], h], dim=-1)
-            )
-            z_t = normal_differential_sample(
-                MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
-            )
-            z_t_embed = self.process_z(z_t)
-            x_t_mean, x_t_logsigma = self.decoder(
-                torch.cat([z_t_embed, h], dim=-1)
-            )
-            x_t = normal_differential_sample(
-                MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
-            )
-            output, rnn_hidden_state = self.rnn(torch.cat(
-                [self.process_x(x_t), external_input_seq_embed[t], z_t_embed], dim=-1
-            ).unsqueeze(dim=0), rnn_hidden_state)
-            h = output[0]
+        with torch.no_grad():
+            for t in range(l):
 
-            sampled_state.append(z_t)
-            h_seq.append(h)
-            rnn_hidden_state_seq.append(rnn_hidden_state.contiguous().transpose(1, 0))
+                z_t_mean, z_t_logsigma = self.prior_gauss(
+                    h
+                )
+                z_t = normal_differential_sample(
+                    MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
+                )
+                z_t_embed = self.process_z(z_t)
+                x_t_mean, x_t_logsigma = self.decoder(
+                    torch.cat([z_t_embed, h], dim=-1)
+                )
+                x_t = normal_differential_sample(
+                    MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
+                )
+                output, rnn_hidden_state = self.rnn(torch.cat(
+                    [self.process_x(x_t), external_input_seq_embed[t], z_t_embed], dim=-1
+                ).unsqueeze(dim=0), rnn_hidden_state)
+                h = output[0]
 
-        sampled_state = torch.stack(sampled_state, dim=0)
-        h_seq = torch.stack(h_seq, dim=0)  # with shape (l+1, bs, k)
-        rnn_hidden_state_seq = torch.stack(rnn_hidden_state_seq, dim=0)
+                observations_sample = split_first_dim(x_t, (n_traj, batch_size))
+                observations_sample = observations_sample.permute(1, 0, 2)
+                predicted_seq_sample.append(observations_sample)
 
-        observations_dist = self.decode_observation(
-            {'sampled_state': sampled_state,
-             'h_seq': h_seq},
-            mode='dist'
+        predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
+        predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        predicted_dist = MultivariateNormal(
+            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))     # 此处如何生成分布(如何提取均值和方差)
         )
 
-        # 对观测分布采样并更新后验lstm隐状态
-        if max_prob:
-            observations_sample = observations_dist.loc
-        else:
-            observations_sample = normal_differential_sample(observations_dist)
-
         outputs = {
-            'sampled_state': sampled_state,
-            'h_seq': h_seq,
-            'rnn_hidden_state_seq': rnn_hidden_state_seq,
-            'predicted_dist': observations_dist,
-            'predicted_seq': observations_sample
+            'predicted_seq_sample': predicted_seq_sample,
+            'predicted_dist': predicted_dist,
+            'predicted_seq': predicted_seq
         }
         return outputs, {'hn': h, 'rnn_hidden': rnn_hidden_state}
 
@@ -226,7 +218,7 @@ class VRNN(nn.Module):
 
             # 预测的隐变量先验分布
             prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-                torch.cat([external_input_seq_embed[-length:], predicted_h], dim=-1)
+                predicted_h
             )
             # 计算loss中的kl散度项
             kl_sum += multivariate_normal_kl_loss(

@@ -174,10 +174,11 @@ def main_test(args, logging, ckpt_path):
                 external_input[:prefix_length], observation[:prefix_length]
             )
             outputs, memory_state = model.forward_prediction(
-                external_input[prefix_length:], max_prob=True, memory_state=memory_state
+                external_input[prefix_length:], args.test.n_traj, memory_state=memory_state
             )
             pred_observations_dist = outputs['predicted_dist']
             pred_observations_sample = outputs['predicted_seq']
+            pred_observations_sample_traj = outputs['predicted_seq_sample']
             if args.model.type == 'vaecl':
                 weight_map = memory_state['weight_map']
             else:
@@ -231,13 +232,13 @@ def main_test(args, logging, ckpt_path):
                 yield tuple([x[:, i:i + 1, :] for x in [observation, decode_observations,
                                                         decode_observation_low, decode_observation_high,
                                                         pred_observation_low, pred_observation_high,
-                                                        pred_observations_sample, external_input]] + [weight_map])
+                                                        pred_observations_sample, pred_observations_sample_traj, external_input]] + [weight_map])
 
     for i, result in enumerate(single_data_generator(acc_info)):
         if i % int(len(dataset) // args.test.plt_cnt) == 0:
 
             observation, decode_observations, decode_observation_low, decode_observation_high, \
-            pred_observation_low, pred_observation_high, pred_observations_sample, external_input = [x for x in
+            pred_observation_low, pred_observation_high, pred_observations_sample, pred_observations_sample_traj, external_input = [x for x in
                                                                                      result[:-1]]
             # 计算单条数据的预测指标
             prefix_length = observation.size(0) - pred_observations_sample.size(0)
@@ -255,7 +256,7 @@ def main_test(args, logging, ckpt_path):
             # 遍历每一个被预测指标
             for _ in range(len(args.dataset.target_names)):
                 observation, decode_observations, decode_observation_low, decode_observation_high, \
-                pred_observation_low, pred_observation_high, pred_observations_sample = [x[:, :, _] for
+                pred_observation_low, pred_observation_high, pred_observations_sample, pred_observations_sample_traj = [x[..., _] for
                                                                                          x in
                                                                                          result[:-2]]
                 external_input = result[-2]
@@ -315,16 +316,28 @@ def main_test(args, logging, ckpt_path):
                 # pred_observation_high = scaler.inverse_transform_output(pred_observation_high)
                 # pred_observations_sample = scaler.inverse_transform_output(pred_observations_sample)
                 plt.plot(x_prefix, observation[:prefix_length], label='history')
-                plt.plot(x_suffix_plus, observation[prefix_length - 1:], label='real')
+                plt.plot(x_suffix_plus, observation[prefix_length - 1:], label='real', zorder=4)
+                pred_observations_sample_traj = pred_observations_sample_traj.permute(2, 0, 1)
+                pred_observations_sample_traj = pred_observations_sample_traj.detach().squeeze(dim=-1).cpu().numpy()
+                for n in range(int(pred_observations_sample_traj.shape[0])):
+                    if n == 0:
+                        plt.plot(x_suffix_plus,
+                                 np.concatenate([[float(observation[prefix_length - 1])],
+                                                 pred_observations_sample_traj[n]]),
+                                 label='prediction_sample', color='grey', linewidth=0.3, alpha=0.9, zorder=2)
+                    else:
+                        plt.plot(x_suffix_plus,
+                                 np.concatenate([[float(observation[prefix_length - 1])],
+                                                 pred_observations_sample_traj[n]]),
+                                 color='grey', linewidth=0.3, alpha=0.9, zorder=2)
                 plt.plot(x_suffix_plus,
                          np.concatenate([[float(observation[prefix_length - 1])],
                                          pred_observations_sample.detach().squeeze().cpu().numpy()]),
-                         label='prediction', zorder=2)
-
+                         label='prediction', color='red', alpha=0.7, zorder=3)
                 plt.fill_between(x_suffix,
                                  pred_observation_low.detach().squeeze().cpu().numpy(),
                                  pred_observation_high.detach().squeeze().cpu().numpy(),
-                                 facecolor='green', alpha=0.2, label='95%',  zorder=1)
+                                 facecolor='lightgreen', alpha=0.4, label='95%',  zorder=1)
                 if args.ct_time:
                     plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='r', zorder=3)
                 plt.ylabel(target_name)
@@ -368,7 +381,6 @@ def main_test(args, logging, ckpt_path):
 
 @hydra.main(config_path='config', config_name="config.yaml")
 def main_app(args: DictConfig) -> None:
-    print(OmegaConf.to_yaml(args))
 
     from common import SimpleLogger
 
@@ -390,6 +402,7 @@ def main_app(args: DictConfig) -> None:
         args = exp_config
 
     # endregion
+    logging(OmegaConf.to_yaml(args))
 
     try:
         with torch.no_grad():
