@@ -6,6 +6,7 @@ import yaml
 import numpy as np
 import json
 # from ruamel_yaml import
+import time
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -42,4 +43,26 @@ def load_yaml(path, name):
 
     return DictConfig(config)
 
+
+class TimeRecorder:
+    def __init__(self):
+        self.infos = {}
+
+    def __call__(self, info, *args, **kwargs):
+        class Context:
+            def __init__(self, recoder, info):
+                self.recoder = recoder
+                self.begin_time = None
+                self.info = info
+
+            def __enter__(self):
+                self.begin_time = time.time()
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.recoder.infos[self.info] = time.time() - self.begin_time
+
+        return Context(self, info)
+
+    def __str__(self):
+        return ' '.join(['{}:{:.2f}s'.format(info, t) for info, t in self.infos.items()])
 

@@ -1,9 +1,9 @@
-type: ode_vrnn
-state_size: 8
+type: ode_rssm
+state_size: 8 # The dimensional of stochastic hidden state
 k_size: 16   # The dimensional of deterministic hidden state
 D: 1
-rnn_type: 'ode_rnn'
-ode_solver: 'dopri5'
+ode_num_layers: 1
+ode_solver: 'rk4'
 ode_hidden_dim: 50
 rtol: 0.001
 atol: 0.0001

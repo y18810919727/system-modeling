@@ -50,7 +50,7 @@ class ODE_RNN(nn.Module):
         # assert data.size(-1) == self.input_dim
         #
         # # Todo:目前要求batch中的每一维tp完全相同，后续实现支持batch中的tp不同
-        # assert ((tp[:, 1:]-tp[:, :-1]) == 0).all()
+        assert ((tp[:, 1:]-tp[:, :-1]) == 0).all()
 
         tp = tp[:, 0] # batchzh
 
@@ -115,6 +115,17 @@ class ODE_RNN(nn.Module):
 
         """
         return torch.zeros((1, batch_size, 2 * self.latent_dim)).to(device)
+
+    def ode_solve(self, ode_state, time_points):
+        assert ode_state.size(-1) == self.latent_dim
+        ode_sol = self.diffeq_solver(ode_state, time_points)
+        return ode_sol
+
+    def GRU_update(self, input_data, rnn_hidden_state):
+        new_h = self.gru_cell(input_data, rnn_hidden_state.squeeze(dim=0))
+        return new_h[..., :self.latent_dim], new_h.unsqueeze(dim=0)
+
+
 
 
 

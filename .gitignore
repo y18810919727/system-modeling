@@ -137,3 +137,4 @@ scripts/tmp/*
 !/data/winding/data_url.csv
 !/data/AccessKey.csv
 !/control/model/cstr_vrnn_5_cpu.pkl
+/test/

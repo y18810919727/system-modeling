@@ -98,14 +98,14 @@ def generate_model(args):
             True,
             args.model.mix
         ).float()
-    elif args.model.type == 'ode_vrnn':
+    elif args.model.type == 'ode_rssm':
         assert args.ct_time
-        from model.ct_model import ODEVRNN
-        model = ODEVRNN(
+        from model.ct_model import ODERSSM
+        model = ODERSSM(
             input_size=args.dataset.input_size,
             state_size=args.model.state_size,
             observations_size=args.dataset.observation_size,
-            rnn_type=args.model.rnn_type,
+            ode_num_layers=args.model.ode_num_layers,
             k=args.model.k_size,
             D=args.model.D,
             ode_hidden_dim=args.model.ode_hidden_dim,
