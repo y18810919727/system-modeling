@@ -21,6 +21,7 @@ test:
   test_dir: ~
   batch_size: 128
   n_traj : 32
+  plt_n_traj: 4
 
 defaults:
   - model: vaecl

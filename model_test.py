@@ -305,7 +305,7 @@ def main_test(args, logging, ckpt_path):
                                  estimate_observation_high,
                                  facecolor='green', alpha=0.2, label='95%', zorder=1)
                 if args.ct_time:
-                    plt.scatter(x_all, observation, s=1, c='r', zorder=3)
+                    plt.scatter(x_all, observation, s=1, c='black', zorder=3)
                 plt.legend()
 
                 ##################图三:预测效果###########################
@@ -319,17 +319,12 @@ def main_test(args, logging, ckpt_path):
                 plt.plot(x_suffix_plus, observation[prefix_length - 1:], label='real', zorder=4)
                 pred_observations_sample_traj = pred_observations_sample_traj.permute(2, 0, 1)
                 pred_observations_sample_traj = pred_observations_sample_traj.detach().squeeze(dim=-1).cpu().numpy()
-                for n in range(int(pred_observations_sample_traj.shape[0])):
-                    if n == 0:
-                        plt.plot(x_suffix_plus,
-                                 np.concatenate([[float(observation[prefix_length - 1])],
-                                                 pred_observations_sample_traj[n]]),
-                                 label='prediction_sample', color='grey', linewidth=0.3, alpha=0.9, zorder=2)
-                    else:
-                        plt.plot(x_suffix_plus,
-                                 np.concatenate([[float(observation[prefix_length - 1])],
-                                                 pred_observations_sample_traj[n]]),
-                                 color='grey', linewidth=0.3, alpha=0.9, zorder=2)
+                plt_sample_cnt = min(args.test.plt_n_traj, pred_observations_sample_traj.shape[0])
+                for n in range(plt_sample_cnt):
+                    plt.plot(x_suffix_plus,
+                             np.concatenate([[float(observation[prefix_length - 1])],
+                                             pred_observations_sample_traj[n]]),
+                             label=('prediction_sample' if n == 0 else None), color='grey', linewidth=0.3, alpha=0.9, zorder=2)
                 plt.plot(x_suffix_plus,
                          np.concatenate([[float(observation[prefix_length - 1])],
                                          pred_observations_sample.detach().squeeze().cpu().numpy()]),
@@ -339,7 +334,7 @@ def main_test(args, logging, ckpt_path):
                                  pred_observation_high.detach().squeeze().cpu().numpy(),
                                  facecolor='lightgreen', alpha=0.4, label='95%',  zorder=1)
                 if args.ct_time:
-                    plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='r', zorder=3)
+                    plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='black', zorder=3)
                 plt.ylabel(target_name)
                 plt.legend()
 
@@ -399,6 +394,7 @@ def main_app(args: DictConfig) -> None:
         'exp.yaml'
     )
     if exp_config is not None:
+        exp_config.test = args.test
         args = exp_config
 
     # endregion

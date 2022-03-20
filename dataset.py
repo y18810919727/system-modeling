@@ -366,9 +366,17 @@ class CTSample:
         time_steps = torch.arange(external_input.size(1)) * self.base_tp
         data = torch.cat([external_input, observation], dim=-1)
         new_data, tp = subsample_indexes(data, time_steps, self.sp)
-        tp = torch.cat([tp[..., 0:1], tp], dim=-1)
-        dt = tp[..., 1:] - tp[..., :-1]
         external_input, observation = new_data[..., :external_input.shape[-1]], new_data[..., -observation.shape[-1]:]
+
+        # region [ati, t_{i} - t_{i-1}]
+        # tp = torch.cat([tp[..., 0:1], tp], dim=-1)
+        # dt = tp[..., 1:] - tp[..., :-1]
+        # endregion
+
+        # region [ati, t_{i+1} - t_{i}]
+        tp = torch.cat([tp, tp[..., -1:]], dim=-1)
+        dt = tp[..., 1:] - tp[..., :-1]
+        # endregion
 
         def add_tp(x, tp):
             return torch.cat([

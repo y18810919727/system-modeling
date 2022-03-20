@@ -75,9 +75,6 @@ class RSSM(nn.Module):
 
         hn = zeros_like_with_shape(observations_seq, (batch_size, self.k)
                                    ) if memory_state is None else memory_state['hn']
-
-        s_t_minus_one = torch.zeros((batch_size, self.state_size), device=observations_seq.device
-                                    ) if memory_state is None else memory_state['sn']
         state_mu = []
         state_logsigma = []
         sampled_state = []
@@ -92,19 +89,19 @@ class RSSM(nn.Module):
                 hidden
             )
 
-            s_t_minus_one = normal_differential_sample(
+            s_t = normal_differential_sample(
                 MultivariateNormal(s_t_mean, logsigma2cov(s_t_logsigma))
             )
 
             # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
             hidden = self.process_state_action(
-                torch.cat([self.process_s(s_t_minus_one), external_input_seq_embed[t]], dim=-1))
+                torch.cat([self.process_s(s_t), external_input_seq_embed[t]], dim=-1))
             output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
             hn = output[0]
 
             state_mu.append(s_t_mean)
             state_logsigma.append(s_t_logsigma)
-            sampled_state.append(s_t_minus_one)
+            sampled_state.append(s_t)
             h_seq.append(hn)
 
         state_mu = torch.stack(state_mu, dim=0)
@@ -121,9 +118,9 @@ class RSSM(nn.Module):
             'observations_seq_embed': observations_seq_embed,
         }
 
-        return outputs, {'hn': hn, 'sn': s_t_minus_one}
+        return outputs, {'hn': hn}
 
-    def forward_prediction(self, external_input_seq, n_traj, max_prob=False, memory_state=None):
+    def forward_prediction(self, external_input_seq, n_traj, memory_state=None):
         """
         预测，先更新ht+1，再预测s_t+1
         h_t+1 = f(h_t, s_t, a_t)
@@ -131,39 +128,28 @@ class RSSM(nn.Module):
 
         """
 
-        external_input_seq_embed = self.process_u(external_input_seq)
         l, batch_size, _ = external_input_seq.size()
 
         hn = zeros_like_with_shape(external_input_seq, (batch_size, self.k)
                                    ) if memory_state is None else memory_state['hn']
-        s_t_minus_one = torch.zeros((batch_size, self.state_size),
-                                    device=external_input_seq.device) if memory_state is None else memory_state['sn']
+        # s_t_minus_one = torch.zeros((batch_size, self.state_size),
+        #                             device=external_input_seq.device) if memory_state is None else memory_state['sn']
 
         predicted_seq_sample = []
 
-        external_input_seq_embed = external_input_seq_embed.repeat(1, n_traj, 1)
-        s_t_minus_one = s_t_minus_one.repeat(n_traj, 1)
-        hn = hn.repeat(n_traj, 1)
-
         with torch.no_grad():
+            hn = hn.repeat(n_traj, 1)
             for t in range(l):
 
-                # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
-                hidden = self.process_state_action(
-                    torch.cat([self.process_s(s_t_minus_one), external_input_seq_embed[t]], dim=-1))
-                output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
-                hn = output[0]
-
                 # 先验网络  p(s_t+1 | h_t+1)
-                hidden = hn
                 prior_s_t_mean, prior_s_t_logsigma = self.prior_gauss(
-                    hidden
+                    hn
                 )
 
                 s_t_dist = MultivariateNormal(prior_s_t_mean, logsigma2cov(prior_s_t_logsigma))
-                s_t_minus_one = normal_differential_sample(s_t_dist)
+                st = normal_differential_sample(s_t_dist)
 
-                observations_dist = self.decode_observation({'sampled_state': s_t_minus_one, 'h_seq': hn},
+                observations_dist = self.decode_observation({'sampled_state': st, 'h_seq': hn},
                                                             mode='dist')
                 observations_sample = split_first_dim(
                     normal_differential_sample(observations_dist),
@@ -171,6 +157,12 @@ class RSSM(nn.Module):
                 )
                 observations_sample = observations_sample.permute(1, 0, 2)
                 predicted_seq_sample.append(observations_sample)
+                external_input_embed = self.process_u(external_input_seq[t]).repeat(n_traj, 1)
+                # GRU网络更新ht  h_t+1 = f(h_t, s_t, a_t)
+                hidden = self.process_state_action(
+                    torch.cat([self.process_s(st), external_input_embed], dim=-1))
+                output, _ = self.rnn(hidden.unsqueeze(dim=0), hn.unsqueeze(dim=0))
+                hn = output[0]
 
         predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
         predicted_seq = torch.mean(predicted_seq_sample, dim=2)
@@ -183,7 +175,7 @@ class RSSM(nn.Module):
             'predicted_dist': predicted_dist,
             'predicted_seq': predicted_seq
         }
-        return outputs, {'hn': hn, 'sn': s_t_minus_one}
+        return outputs, {'hn': hn}
 
     def call_loss(self, external_input_seq, observations_seq, memory_state=None):
         outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
@@ -204,10 +196,9 @@ class RSSM(nn.Module):
         for step in range(D):
             length = predicted_h.size()[0]
             # 先验网络预测s_t  p(s_t | h_t)
-            hidden = predicted_h
 
             prior_s_t_seq_mean, prior_s_t_seq_logsigma = self.prior_gauss(
-                hidden[-length:]
+                predicted_h
             )
 
             kl_sum += multivariate_normal_kl_loss(

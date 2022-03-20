@@ -9,7 +9,6 @@ from model.common import DiagMultivariateNormal as MultivariateNormal, MLP
 from model.func import normal_differential_sample, multivariate_normal_kl_loss
 from model.ct_model import DiffeqSolver,ODEFunc
 from torch.nn import GRUCell
-from lib.util import TimeRecorder
 from model.vrnn import VRNN
 
 
@@ -81,25 +80,23 @@ class ODERSSM(nn.Module):
         rnn_hidden_state_seq = [rnn_hidden_state]
         for i in range(l):
 
-            # h_pre = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]),
-            #                                            torch.clip(dt[i, :, 0], 1e-6, float('inf'))]))
-
-            h_pre = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
             # 估计每一时刻t下，z的后验分布
             z_t_mean, z_t_logsigma = self.posterior_gauss(
-                torch.cat([observations_seq_embed[i], h_pre], dim=-1)
+                torch.cat([observations_seq_embed[i], h], dim=-1)
             )
             # 从分布做采样得到z_t
             z_t = normal_differential_sample(
                 MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
             )
 
-            rnn_hidden_state = self.update_rnn_hidden_state(h_pre, rnn_hidden_state)
-
             h, rnn_hidden_state = self.GRU_update(torch.cat([
                 external_input_seq_embed[i],
                 self.process_z(z_t),
             ], dim=-1), rnn_hidden_state)
+
+            # dt[i]代表 t[i+1] - t[i]，预测t[i+1]时刻的h
+            h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
+            rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
 
             h_seq.append(h)
             rnn_hidden_state_seq.append(rnn_hidden_state)
@@ -160,10 +157,9 @@ class ODERSSM(nn.Module):
             rnn_hidden_state = rnn_hidden_state.repeat(n_traj, 1)
 
             for i in range(l):
-                h_pre = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
                 # 估计每一时刻t下，z的后验分布
                 z_t_mean, z_t_logsigma = self.prior_gauss(
-                    h_pre
+                    h
                 )
                 z_t = normal_differential_sample(
                     MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
@@ -175,7 +171,6 @@ class ODERSSM(nn.Module):
                 x_t = normal_differential_sample(
                     MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
                 )
-                rnn_hidden_state = self.update_rnn_hidden_state(h_pre, rnn_hidden_state)
 
                 external_input_seq_embed_i = self.process_u(external_input_seq[i])
                 h, rnn_hidden_state = self.GRU_update(torch.cat([
@@ -183,6 +178,10 @@ class ODERSSM(nn.Module):
                     self.process_z(z_t),
                 ], dim=-1), rnn_hidden_state
                 )
+
+                h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
+                rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
+
                 observations_sample = split_first_dim(x_t, (n_traj, batch_size))
                 observations_sample = observations_sample.permute(1, 0, 2)
                 predicted_seq_sample.append(observations_sample)
@@ -208,11 +207,9 @@ class ODERSSM(nn.Module):
         此方法仅运行在调用完forward_posterior之后
         Returns:
         """
-        tr = TimeRecorder()
         # external_input_seq, dt = external_input_seq[..., :-1], external_input_seq[..., -1:]
         dt = external_input_seq[..., -1:]
-        with tr('posterior'):
-            outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
+        outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
 
         h_seq = outputs['h_seq']
         rnn_hidden_state_seq = outputs['rnn_hidden_state_seq']
@@ -230,23 +227,13 @@ class ODERSSM(nn.Module):
         rnn_hidden_state_seq = rnn_hidden_state_seq[:-1]
 
         # 此处为latent overshooting，d为over_shooting的距离，这部分代码思维强度有点深，需要多看几遍。
-        for d in range(D if self.training else 1):
+        for d in range(D):
             length = h_seq.size()[0]
 
             # 预测的隐变量先验分布
-            with tr('%i-ode' % d):
-                h_pre_seq = split_first_dim(
-                    self.diffeq_solver(merge_first_two_dims(h_seq),
-                                       torch.stack([
-                                           merge_first_two_dims(torch.zeros_like(dt[-length:, :, 0])),
-                                           merge_first_two_dims(dt[-length:, :, 0]),
-                                       ])
-                                       )[-1], (length, batch_size)
-                    )
-            rnn_hidden_state_seq = self.update_rnn_hidden_state(h_pre_seq, rnn_hidden_state_seq)
 
             prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-                h_pre_seq
+                h_seq
             )
             # 计算loss中的kl散度项
             kl_sum += multivariate_normal_kl_loss(
@@ -261,29 +248,28 @@ class ODERSSM(nn.Module):
                 MultivariateNormal(prior_z_t_seq_mean, logsigma2cov(prior_z_t_seq_logsigma))
             )
             z_t_seq_embed = self.process_z(z_t_seq)
-            # TODO: 实现序列并行
-            # region ct 模式下，序列不同位置的dt不同，序列并行计算较为复杂
 
-            with tr('%i-GRU update' % d):
-                h_seq, rnn_hidden_state_seq = self.GRU_update(
-                    merge_first_two_dims(
-                        torch.cat([
-                            external_input_seq_embed[-length:],
-                            z_t_seq_embed
-                        ], dim=-1)
-                    ),
-                    merge_first_two_dims(rnn_hidden_state_seq)
-                )
+            h_seq, rnn_hidden_state_seq = self.GRU_update(
+                merge_first_two_dims(
+                    torch.cat([
+                        external_input_seq_embed[-length:],
+                        z_t_seq_embed
+                    ], dim=-1)
+                ),
+                merge_first_two_dims(rnn_hidden_state_seq)
+            )
+
+            h_seq = split_first_dim(
+                self.diffeq_solver(h_seq,
+                                   torch.stack([
+                                       merge_first_two_dims(torch.zeros_like(dt[-length:, :, 0])),
+                                       merge_first_two_dims(dt[-length:, :, 0]),
+                                   ])
+                                   )[-1], (length, batch_size)
+            )[:-1]
 
             rnn_hidden_state_seq = split_first_dim(rnn_hidden_state_seq, (length, batch_size))[:-1]
-            h_seq = split_first_dim(h_seq.squeeze(dim=0), (length, batch_size))[:-1]
-
-            # output_list.append(output)
-            # # Each tensor in list: (bs, 1, 2*latent_dim)
-            # rnn_hidden_state_list.append(rnn_hidden_state.transpose(1, 0))
-            # predicted_h = torch.cat(output_list, dim=0)[:-1]
-            # rnn_hidden_state_seq = torch.stack(rnn_hidden_state_list)[:-1]
-            # endregion
+            rnn_hidden_state_seq = self.update_rnn_hidden_state(h_seq, rnn_hidden_state_seq)
 
         kl_sum = kl_sum/D
 
@@ -301,7 +287,6 @@ class ODERSSM(nn.Module):
         observations_normal_dist = self.decode_observation(outputs, mode='dist')
         # 计算loss的第二部分：观测数据的重构loss
         generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
-        print(tr)
 
         return {
             'loss': (kl_sum - generative_likelihood)/batch_size,
