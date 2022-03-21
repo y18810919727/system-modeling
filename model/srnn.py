@@ -11,8 +11,9 @@ from torch import nn
 from model.common import DBlock, PreProcess, MLP
 
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov, split_first_dim, merge_first_two_dims
-from model.func import normal_differential_sample, multivariate_normal_kl_loss
+from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
 from model.common import DiagMultivariateNormal as MultivariateNormal
+
 
 class SRNN(nn.Module):
     def __init__(self, input_size, state_size, observations_size, net_type='rnn', k=16, num_layers=1,
@@ -61,18 +62,23 @@ class SRNN(nn.Module):
 
     def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
         d0 = None if memory_state is None else memory_state['dn']
+        an = None if memory_state is None else memory_state['an']
 
         l, batch_size, _ = external_input_seq.size()
 
-        external_input_seq_embed = self.process_u(external_input_seq)
-        d_seq, dn = self.input_rnn(external_input_seq_embed, d0)
+        d_seq, dn = self.inputs_to_d_seq(external_input_seq, d0)
 
         observations_seq_embed = self.process_x(observations_seq)
-        a_seq = self.posterior_a_layer(
-            torch.cat([d_seq, observations_seq_embed], dim=2).flip((0,))
-        ).flip((0,))
-        if not self.filtering:
-            a_seq = self.a_seq[0]
+
+        if self.filtering:
+            a_seq = self.posterior_a_layer(
+                torch.cat([d_seq, observations_seq_embed], dim=2)
+            )
+        else:
+            a_seq, _ = self.posterior_a_layer(
+                torch.cat([d_seq, observations_seq_embed], dim=2).flip((0,))
+            )
+            a_seq = a_seq.flip((0,))
 
         z_t_minus_one = torch.zeros((batch_size, self.state_size), device=external_input_seq.device) if memory_state is None else memory_state['zn']
         state_mu = []
@@ -103,19 +109,17 @@ class SRNN(nn.Module):
             'state_logsigma': state_logsigma,
             'sampled_state': sampled_state,
             'd_seq': d_seq,
-            'external_input_seq_embed': external_input_seq_embed,
         }
 
-        return outputs, {'dn': dn, "zn": z_t_minus_one}
+        return outputs, {'dn': dn, "zn": z_t_minus_one, 'an': an}
 
     def forward_prediction(self, external_input_seq, n_traj, memory_state=None):
 
         l, batch_size, _ = external_input_seq.size()
         d0 = None if memory_state is None else memory_state['dn']
         z_t_minus_one = torch.zeros((batch_size, self.state_size), device=external_input_seq.device) if memory_state is None else memory_state['zn']
-        external_input_seq = external_input_seq
-        external_input_seq_embed = self.process_u(external_input_seq)
-        d_seq, dn = self.input_rnn(external_input_seq_embed, d0)
+
+        d_seq, dn = self.inputs_to_d_seq(external_input_seq, d0)
 
         predicted_seq_sample = []
         d_seq = d_seq.repeat(1, n_traj, 1)
@@ -220,6 +224,19 @@ class SRNN(nn.Module):
             'kl_loss': kl_sum/batch_size,
             'likelihood_loss': -generative_likelihood/batch_size
         }
+
+    def inputs_to_d_seq(self, external_input_seq, d0=None):
+
+        external_input_seq_embed = self.process_u(external_input_seq)
+        d_seq, dn = self.input_rnn(external_input_seq_embed, d0)
+
+        if d0 is None:
+            d = torch.zeros_like(d_seq[0])
+        else:
+            d = d0[-1]
+        d_seq = torch.cat([d.unsqueeze(dim=0), d_seq[:-1]], dim=0)
+
+        return d_seq, dn
 
     def decode_observation(self, outputs, mode='sample'):
         """
