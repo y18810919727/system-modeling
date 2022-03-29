@@ -12,7 +12,7 @@ import numpy as np
 from lib import util
 from dataset import FakeDataset
 from torch.utils.data import DataLoader
-from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample
+from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
 import traceback
 from matplotlib import pyplot as plt
 import hydra
@@ -35,6 +35,11 @@ def main_test(args, logging, ckpt_path):
     figs_path = os.path.join(logging.dir, 'figs')
     if not os.path.exists(figs_path):
         os.makedirs(figs_path)
+
+    if args.test.plt_single:   # 单图绘制
+        single_figs_path = os.path.join(figs_path, 'single_figs')
+        if not os.path.exists(single_figs_path):
+            os.makedirs(single_figs_path)
 
     model = generate_model(args)
     ckpt = torch.load(
@@ -84,10 +89,10 @@ def main_test(args, logging, ckpt_path):
         train_size, val_size, _ = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         test_size = len(data_csvs) - train_size - val_size
         if args.dataset.type.endswith('1_4'):
-            dataset = WesternDataset_1_4(data_csvs[-test_size:], args.history_length + args.forward_length,
+            dataset = WesternDataset_1_4(data_csvs[-test_size:], args.dataset.history_length + args.dataset.forward_length,
                                      args.dataset.dataset_window, dilation=args.dataset.dilation)
         else:
-            dataset = WesternDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
+            dataset = WesternDataset(data_csvs[-test_size:], args.dataset.history_length + args.dataset.forward_length,
                                      args.dataset.dataset_window, dilation=args.dataset.dilation)
 
     elif args.dataset.type == 'west_con':
@@ -97,22 +102,27 @@ def main_test(args, logging, ckpt_path):
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, _ = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         test_size = len(data_csvs) - train_size - val_size
-        dataset = WesternConcentrationDataset(data_csvs[-test_size:], args.history_length + args.forward_length,
+        dataset = WesternConcentrationDataset(data_csvs[-test_size:], args.dataset.history_length + args.dataset.forward_length,
                                               args.dataset.dataset_window, dilation=args.dataset.dilation)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'nl':
+        dataset = NLDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type == 'ib':
         dataset = IBDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type == 'winding':
         dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
     elif args.dataset.type == 'southeast':
         dataset_split = [0.6, 0.2, 0.2]
         _, _, dataset, scaler = SoutheastOreDataset(
@@ -169,7 +179,7 @@ def main_test(args, logging, ckpt_path):
             decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
 
             # region Prediction
-            prefix_length = int(args.history_length * args.sp) if args.ct_time else args.history_length
+            prefix_length = int(args.dataset.history_length * args.sp) if args.ct_time else args.dataset.history_length
             _, memory_state = model.forward_posterior(
                 external_input[:prefix_length], observation[:prefix_length]
             )
@@ -357,6 +367,44 @@ def main_test(args, logging, ckpt_path):
                     )
                 )
                 plt.close()
+
+                # plt_single
+                if args.test.plt_single:
+                    plt.figure(figsize=(10, 8))
+
+                    plt.plot(x_prefix, observation[:prefix_length], label='history')
+                    plt.plot(x_suffix_plus, observation[prefix_length - 1:], label='real', zorder=4)
+                    for n in range(int(pred_observations_sample_traj.shape[0])):
+                        if n == 0:
+                            plt.plot(x_suffix_plus,
+                                     np.concatenate([[float(observation[prefix_length - 1])],
+                                                     pred_observations_sample_traj[n]]),
+                                     label='prediction_sample', color='grey', linewidth=0.3, alpha=0.9, zorder=2)
+                        else:
+                            plt.plot(x_suffix_plus,
+                                     np.concatenate([[float(observation[prefix_length - 1])],
+                                                     pred_observations_sample_traj[n]]),
+                                     color='grey', linewidth=0.3, alpha=0.9, zorder=2)
+                    plt.plot(x_suffix_plus,
+                             np.concatenate([[float(observation[prefix_length - 1])],
+                                             pred_observations_sample.detach().squeeze().cpu().numpy()]),
+                             label='prediction', color='red', alpha=0.7, zorder=3)
+                    plt.fill_between(x_suffix,
+                                     pred_observation_low.detach().squeeze().cpu().numpy(),
+                                     pred_observation_high.detach().squeeze().cpu().numpy(),
+                                     facecolor='lightgreen', alpha=0.4, label='95%', zorder=1)
+                    if args.ct_time:
+                        plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='r',
+                                    zorder=3)
+                    plt.ylabel(target_name)
+                    plt.legend()
+
+                    plt.savefig(
+                        os.path.join(
+                            single_figs_path, str(i) + '_' + str(_) + '.pdf'
+                        ), dpi=600
+                    )
+                    plt.close()
 
     logging(' '.join(
         ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in zip(acc_name, acc_info)]

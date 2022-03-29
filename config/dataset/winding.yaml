@@ -6,3 +6,5 @@ train_path: data/winding/winding_train.csv
 val_path: data/winding/winding_val.csv
 test_path: data/winding/winding_test.csv
 target_names: ['tension1', 'tension2']
+history_length: 60
+forward_length: 180

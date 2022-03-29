@@ -4,3 +4,5 @@ observation_size: 2
 dataset_window: 5
 dilation: 2
 target_names: ['UC', 'Pressure']
+history_length: 180
+forward_length: 60

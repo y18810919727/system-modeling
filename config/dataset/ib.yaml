@@ -7,3 +7,5 @@ train_path: data/ib/ibState_train_1.csv
 val_path: data/ib/ibState_val_1.csv
 test_path: data/ib/ibState_test_1.csv
 target_names: ['v', 'g', 'h', 'fatigue', 'consumption', 'reward']
+history_length: 180
+forward_length: 60

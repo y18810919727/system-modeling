@@ -112,13 +112,12 @@ class DeepAR(nn.Module):
             memory_state['hidden'], memory_state['cell'])
 
         predicted_seq_sample = []
-        external_input_seq = external_input_seq.repeat(1, n_traj, 1)
-        hidden = hidden.repeat(1, n_traj, 1)
-        cell = cell.repeat(1, n_traj, 1)
 
         with torch.no_grad():
+            hidden = hidden.repeat(1, n_traj, 1)
+            cell = cell.repeat(1, n_traj, 1)
             for t in range(l):
-                output, (hidden, cell) = self.lstm(torch.unsqueeze(external_input_seq[t], dim=0), (hidden, cell))
+                output, (hidden, cell) = self.lstm(torch.unsqueeze(external_input_seq[t].repeat(n_traj, 1), dim=0), (hidden, cell))
                 hidden_permute = hidden.permute(1, 2, 0).contiguous().view(hidden.shape[1], -1)
                 sigma = self.distribution_presigma(hidden_permute)
                 mu = self.distribution_mu(hidden_permute)
@@ -177,9 +176,9 @@ class DeepAR(nn.Module):
         loss_batch_mean = torch.mean(likelihood, dim=1)
         loss = -torch.squeeze(torch.sum(loss_batch_mean, dim=0))
         return {
-            'loss': loss,
+            'loss': loss/l,
             'kl_loss': 0,
-            'likelihood_loss':0
+            'likelihood_loss': 0
         }
 
     def decode_observation(self, outputs, mode='sample'):

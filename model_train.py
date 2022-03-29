@@ -15,7 +15,7 @@ import sys
 import pandas
 import pandas as pd
 
-from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample
+from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
 from torch.utils.data import DataLoader
 from lib import util
 import hydra
@@ -138,17 +138,17 @@ def main_train(args, logging):
         train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         if args.dataset.type.endswith('1_4'):
             train_dataset = WesternDataset_1_4(data_csvs[:train_size],
-                                           args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                           args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window,
                                            dilation=args.dataset.dilation)
             val_dataset = WesternDataset_1_4(data_csvs[train_size:train_size + val_size],
-                                         args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                         args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window,
                                          dilation=args.dataset.dilation)
         else:
             train_dataset = WesternDataset(data_csvs[:train_size],
-                                           args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                           args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window,
                                            dilation=args.dataset.dilation)
             val_dataset = WesternDataset(data_csvs[train_size:train_size + val_size],
-                                         args.history_length + args.forward_length, step=args.dataset.dataset_window,
+                                         args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window,
                                          dilation=args.dataset.dilation)
     elif args.dataset.type == 'west_con':
         data_dir = os.path.join(hydra.utils.get_original_cwd(), 'data/west_con')
@@ -156,11 +156,11 @@ def main_train(args, logging):
         dataset_split = [0.6, 0.2, 0.2]
         train_size, val_size, test_size = [int(len(data_csvs) * ratio) for ratio in dataset_split]
         train_dataset = WesternConcentrationDataset(data_csvs[:train_size],
-                                                    args.history_length + args.forward_length,
+                                                    args.dataset.history_length + args.dataset.forward_length,
                                                     step=args.dataset.dataset_window,
                                                     dilation=args.dataset.dilation)
         val_dataset = WesternConcentrationDataset(data_csvs[train_size:train_size + val_size],
-                                                  args.history_length + args.forward_length,
+                                                  args.dataset.history_length + args.dataset.forward_length,
                                                   step=args.dataset.dataset_window,
                                                   dilation=args.dataset.dilation)
     elif args.dataset.type.startswith('cstr'):
@@ -180,10 +180,24 @@ def main_train(args, logging):
                             )
         train_dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
         val_dataset = CstrDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type.startswith('nl'):
+        objects = pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), 'data/nl/data_url.csv')
+        )
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/nl')
+        if not os.path.exists(base):
+            os.mkdir(base)
+        train_dataset = NLDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+        val_dataset = NLDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type.startswith('ib'):
         objects = pd.read_csv(
@@ -194,10 +208,10 @@ def main_train(args, logging):
             os.mkdir(base)
         train_dataset = IBDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
         val_dataset = IBDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
         scale = train_dataset.normalize_record()
 
     elif args.dataset.type.startswith('winding'):
@@ -216,10 +230,10 @@ def main_train(args, logging):
                             )
         train_dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
         val_dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
-        ), args.history_length + args.forward_length, step=args.dataset.dataset_window)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type.startswith('southeast'):
 

@@ -191,6 +191,7 @@ class AttentionSeq2Seq(nn.Module):
 
         """
 
+        n_traj = 1
         l, batch_size, _ = external_input_seq.size()
 
         # Get the outputs of encoder, encoder_outputs -> (max_len, batch_size, hidden_size), encoder_hidden -> (1, batch_size, hidden_size)
@@ -218,10 +219,10 @@ class AttentionSeq2Seq(nn.Module):
         # decoder_output = torch.zeros((batch_size, self.observations_size)).to(external_input_seq.device)
 
         predicted_seq_sample = []
-        external_input_seq = external_input_seq.repeat(1, n_traj, 1)
-        decoder_hidden = decoder_hidden.repeat(1, n_traj, 1)
-        encoder_outputs = encoder_outputs.repeat(1, n_traj, 1)
-        decoder_output = decoder_output.repeat(n_traj, 1)
+        # external_input_seq = external_input_seq.repeat(1, n_traj, 1)
+        # decoder_hidden = decoder_hidden.repeat(1, n_traj, 1)
+        # encoder_outputs = encoder_outputs.repeat(1, n_traj, 1)
+        # decoder_output = decoder_output.repeat(n_traj, 1)
 
         for di in range(l):
             decoder_input = torch.cat([external_input_seq[di], decoder_output], dim=-1).unsqueeze(0)

@@ -8,3 +8,5 @@ data_from_csv: yes
 in_columns: ["out_f", "pressure"]
 out_columns: "out_c"
 target_names: ['Output_Concentration']
+history_length: 180
+forward_length: 60

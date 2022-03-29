@@ -1,2 +1,5 @@
 hydra-core==1.1.1
+omegaconf==2.1.1
+mongoengine==0.23.1
 torchdiffeq==0.2.2
+oss2

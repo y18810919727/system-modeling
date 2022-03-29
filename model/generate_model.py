@@ -12,6 +12,9 @@ from model.srnn import SRNN
 from model.vrnn import VRNN
 from model.deepar import DeepAR
 from model.rssm import RSSM
+from model.rnn import RNN
+from model.storn import STORN
+from model.vaernn import VAERNN
 from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
 
 
@@ -61,6 +64,34 @@ def generate_model(args):
             num_layers=args.model.num_layers,
             D=args.model.D
         )
+    elif args.model.type == 'vaernn':
+        model = VAERNN(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
+            k=args.model.k_size,
+            num_layers=args.model.num_layers,
+            D=args.model.D
+        )
+    elif args.model.type == 'rnn':
+        model = RNN(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
+            k=args.model.k_size,
+            num_layers=args.model.num_layers,
+            train_pred_len=args.model.train_pred_len,
+            ct_time=args.ct_time,
+            sp=args.sp
+        )
+    elif args.model.type == 'storn':
+        model = STORN(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
+            k=args.model.k_size,
+            num_layers=args.model.num_layers,
+        )
     elif args.model.type == 'deepar':
         model = DeepAR(
             input_size=args.dataset.input_size,
@@ -82,7 +113,7 @@ def generate_model(args):
             args.dataset.input_size,
             args.dataset.input_size + args.dataset.observation_size,
             args.dataset.observation_size,
-            args.history_length,
+            args.dataset.history_length,
             args.model.label_len,
             args.model.train_pred_len,
             args.model.factor,

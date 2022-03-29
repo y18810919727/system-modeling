@@ -6,3 +6,5 @@ train_path: data/cstr/cstr_train.csv
 val_path: data/cstr/cstr_val.csv
 test_path: data/cstr/cstr_test.csv
 target_names: ['concentration', 'temp(K)']
+history_length: 180
+forward_length: 60

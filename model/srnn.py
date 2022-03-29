@@ -122,18 +122,17 @@ class SRNN(nn.Module):
         d_seq, dn = self.inputs_to_d_seq(external_input_seq, d0)
 
         predicted_seq_sample = []
-        d_seq = d_seq.repeat(1, n_traj, 1)
-        z_t_minus_one = z_t_minus_one.repeat(n_traj, 1)
 
         with torch.no_grad():
+            z_t_minus_one = z_t_minus_one.repeat(n_traj, 1)
             for t in range(l):
                 prior_z_t_mean, prior_z_t_logsigma = self.prior_gauss(
-                    torch.cat([z_t_minus_one, d_seq[t]], dim=-1)
+                    torch.cat([z_t_minus_one, d_seq[t].repeat(n_traj, 1)], dim=-1)
                 )
                 z_t_dist = MultivariateNormal(prior_z_t_mean, logsigma2cov(prior_z_t_logsigma))
                 z_t_minus_one = normal_differential_sample(z_t_dist)
 
-                observations_dist = self.decode_observation({'sampled_state': z_t_minus_one, 'd_seq': d_seq[t]},
+                observations_dist = self.decode_observation({'sampled_state': z_t_minus_one, 'd_seq': d_seq[t].repeat(n_traj, 1)},
                                                             mode='dist')
                 observations_sample = split_first_dim(  # [n_traj, batch_size, output_dim]
                     normal_differential_sample(observations_dist),
@@ -183,8 +182,8 @@ class SRNN(nn.Module):
             )
 
             kl_sum += multivariate_normal_kl_loss(
-                state_mu[-length:],
-                logsigma2cov(state_logsigma[-length:]),
+                state_mu[-length:].detach() if step > 0 else state_mu[-length],
+                logsigma2cov(state_logsigma[-length:].detach()) if step > 0 else logsigma2cov(state_logsigma[-length]),
                 prior_z_t_seq_mean,
                 logsigma2cov(prior_z_t_seq_logsigma)
             )
@@ -220,9 +219,9 @@ class SRNN(nn.Module):
         generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
 
         return {
-            'loss': (kl_sum - generative_likelihood)/batch_size,
-            'kl_loss': kl_sum/batch_size,
-            'likelihood_loss': -generative_likelihood/batch_size
+            'loss': (kl_sum - generative_likelihood)/batch_size/l,
+            'kl_loss': kl_sum/batch_size/l,
+            'likelihood_loss': -generative_likelihood/batch_size/l
         }
 
     def inputs_to_d_seq(self, external_input_seq, d0=None):

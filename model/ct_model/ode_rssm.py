@@ -237,8 +237,8 @@ class ODERSSM(nn.Module):
             )
             # 计算loss中的kl散度项
             kl_sum += multivariate_normal_kl_loss(
-                state_mu[-length:],
-                logsigma2cov(state_logsigma[-length:]),
+                state_mu[-length:].detach() if d > 0 else state_mu[-length],
+                logsigma2cov(state_logsigma[-length:].detach()) if d > 0 else logsigma2cov(state_logsigma[-length]),
                 prior_z_t_seq_mean,
                 logsigma2cov(prior_z_t_seq_logsigma)
             )
@@ -289,9 +289,9 @@ class ODERSSM(nn.Module):
         generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
 
         return {
-            'loss': (kl_sum - generative_likelihood)/batch_size,
-            'kl_loss': kl_sum/batch_size,
-            'likelihood_loss': -generative_likelihood/batch_size
+            'loss': (kl_sum - generative_likelihood)/batch_size/l,
+            'kl_loss': kl_sum/batch_size/l,
+            'likelihood_loss': -generative_likelihood/batch_size/l
         }
 
 

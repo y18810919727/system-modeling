@@ -1,0 +1,11 @@
+# @package _group_
+type: nl
+input_size: 1
+observation_size: 1
+dataset_window: 5
+train_path: data/nl/narendra_li_train.csv
+val_path: data/nl/narendra_li_val.csv
+test_path: data/nl/narendra_li_test.csv
+target_names: ['y']
+history_length: 1
+forward_length: 499

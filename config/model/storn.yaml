@@ -1,0 +1,8 @@
+# @package _group_
+type: storn
+state_size: 8
+k_size: 32
+num_layers: 1
+
+
+
