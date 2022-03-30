@@ -142,7 +142,8 @@ def generate_model(args):
             ode_hidden_dim=args.model.ode_hidden_dim,
             ode_solver=args.model.ode_solver,
             rtol=args.model.rtol,
-            atol=args.model.atol
+            atol=args.model.atol,
+            ode_type=args.model.ode_type
         )
     else:
         raise NotImplementedError

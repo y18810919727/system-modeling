@@ -15,7 +15,8 @@ from model.vrnn import VRNN
 class ODERSSM(nn.Module):
 
     def __init__(self, input_size, state_size, observations_size,
-                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4):
+                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4,
+                 ode_type='normal'):
 
         super(ODERSSM, self).__init__()
 
@@ -28,7 +29,9 @@ class ODERSSM(nn.Module):
         self.gru_cell = GRUCell(2*k, 2*k)
         ode_func = ODEFunc(
             input_dim=k,
-            ode_func_net=MLP(k, ode_hidden_dim, k, num_mlp_layers=ode_num_layers)
+            ode_hidden_dim=ode_hidden_dim,
+            ode_num_layers=ode_num_layers,
+            ode_type=ode_type,
         )
         self.diffeq_solver = DiffeqSolver(k, ode_func, ode_solver,
                                           odeint_rtol=rtol, odeint_atol=atol)

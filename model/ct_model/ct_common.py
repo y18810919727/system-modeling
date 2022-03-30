@@ -5,6 +5,7 @@ import math
 import os
 import json
 from torchdiffeq import odeint
+import torch
 
 import torch
 
@@ -26,6 +27,17 @@ def linspace_vector(start, end, n_points, device):
         res = torch.t(res.reshape(start.size(0), n_points))
     return res
 
+def odeint_uniform_union(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
+    T, N = tps.shape
+    ts_norm = tps - tps[0:1]
+    ts_ode = ts_norm[1:].reshape(-1).unique()
+    ts_ode, _ = torch.cat([torch.zeros(1, device=ts_ode.device), ts_ode]).sort()
+    ts_ode = torch.cat([ts_ode, ts_ode[-1:]+1e-3])
+    # Tidx = [torch.argwhere(ts_norm[t, n] == ts_ode).item() for t in range(T) for n in range(N)]
+    Tidx = [[torch.where(ts_norm[t, n] == ts_ode)[0].item() for t in range(T)] for n in range(N)]
+    ode_sols = odeint(f, y0, t=ts_ode, rtol=rtol, atol=atol, method=method, options=options)
+    sols_uniform = torch.stack([ode_sols[Tidx[i], i] for i in range(N)], dim=1)
+    return sols_uniform
 
 def odeint_uniform(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
     if len(tps.shape) == 2:
@@ -91,3 +103,34 @@ def time_steps_increasing(time_steps, eps=1e-6):
             base[time_steps[i] <= time_steps[i-1]] += eps
             new_tps[i] = base + time_steps[i]
     return new_tps
+
+
+def vector_sta(x, dx_dt):
+    return torch.tanh(dx_dt) - x
+
+def vector_normal(x, dx_dt):
+    return dx_dt
+
+def vector_orth(x, dx_dt):
+
+    try:
+        x_detach = x.detach()
+        #.unsqueeze(dim=-1)
+        x_norm = torch.linalg.norm(x_detach, dim=-1, keepdim=True)
+        dx_dt_norm = torch.linalg.norm(dx_dt, dim=-1, keepdim=True)
+
+        dot_sum = torch.sum(dx_dt*x_detach, dim=-1, keepdim=True)
+        norm_dot = x_norm * dx_dt_norm
+        cos_theta = dot_sum / norm_dot
+        dx_dt_projection = x_detach / x_norm * (dx_dt_norm * cos_theta)
+
+        orth_dx_dt = dx_dt - dx_dt_projection
+        assert torch.norm(torch.sum(orth_dx_dt * x_detach, dim=-1)) < 1e-4
+    except AssertionError as e:
+        print('orth: ', orth_dx_dt)
+        print('x: ', x)
+        np.save('dxdt.npy', orth_dx_dt.cpu().numpy())
+        np.save('xt.npy', x_detach.cpu().numpy())
+
+        raise e
+    return orth_dx_dt

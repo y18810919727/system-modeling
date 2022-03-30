@@ -13,7 +13,7 @@ import re
 from pandas import DataFrame
 from omegaconf import DictConfig, OmegaConf
 from functools import reduce
-from operator import and_
+from operator import and_, or_
 
 
 def load_DictConfig(path, name):
@@ -115,16 +115,22 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
         root_dir: the position of ckpt_dir
 
     Returns:
+        data_frames: List of Dataframe. {Dataframe-1, Dataframe-2, ... }
+        datasets: List of str. {datset-1, datset-2 ,...}
+        path_list: List of str, all paths of ckpt
 
     How to use:
-    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood',
-    dataset='winding', sort_key='pred_rrse')
+
+        datasets, data_frames, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood',
+            dataset='winding', sort_key='pred_rrse', key_words=['rssm', 'vrnn'])
     """
+    if isinstance(key_words, str):
+        key_words = [key_words]
     path_list = generating_dir(ckpt_dir, root_dir)
     date_filter = lambda path: True if date is None else path.split('/')[-1] >= date
     model_filter = lambda path: True if model is None else path.split('/')[2] == model
     dataset_filter = lambda path: True if dataset is None else path.split('/')[1] == dataset
-    key_words_filter = lambda path: True if key_words is None else key_words in path
+    key_words_filter = lambda path: True if key_words is None else reduce(or_, [kw in path for kw in key_words])
 
     path_list = list(filter(lambda x: reduce(and_, [
         date_filter(x),
@@ -218,6 +224,7 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
 
 if __name__ == '__main__':
     # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model='oderssm_ode')
-    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood')
-    for df in dfs:
-        print(df)
+    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood', key_words=['rssm', 'vrnn'])
+    print('\n'.join(path_list))
+    # for df in dfs:
+    #     print(pa)
