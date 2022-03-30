@@ -12,6 +12,8 @@ import re
 
 from pandas import DataFrame
 from omegaconf import DictConfig, OmegaConf
+from functools import reduce
+from operator import and_
 
 
 def load_DictConfig(path, name):
@@ -102,41 +104,46 @@ def generating_dir(base_dir, root_dir):
     return ret
 
 
-def generate_data_frame(date=None, model=None):
-    path_list = generating_dir('ckpt/', '../')
-    # 日期筛选
-    if date:
-        path_list_tmp = []
-        for line in path_list:
-            splitline = line.split('/')
-            if splitline[-1] >= date:
-                path_list_tmp.append(line)
-            else:
-                pass
-        path_list = path_list_tmp
+def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, key_words=None,
+                        dataset=None, sort_key='pred_rmse'):
+    """
 
-    # 模型筛选
-    if model:
-        path_list_tmp = []
-        for line in path_list:
-            splitline = line.split('/')
-            if splitline[2] == model:
-                path_list_tmp.append(line)
-            else:
-                pass
-        path_list = path_list_tmp
+    Args:
+        date: only counting the logs later than date
+        model:  save_dir
+        ckpt_dir: the name of ckpt dir
+        root_dir: the position of ckpt_dir
+
+    Returns:
+
+    How to use:
+    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood',
+    dataset='winding', sort_key='pred_rrse')
+    """
+    path_list = generating_dir(ckpt_dir, root_dir)
+    date_filter = lambda path: True if date is None else path.split('/')[-1] >= date
+    model_filter = lambda path: True if model is None else path.split('/')[2] == model
+    dataset_filter = lambda path: True if dataset is None else path.split('/')[1] == dataset
+    key_words_filter = lambda path: True if key_words is None else key_words in path
+
+    path_list = list(filter(lambda x: reduce(and_, [
+        date_filter(x),
+        model_filter(x),
+        dataset_filter(x),
+        key_words_filter(x),
+    ]), path_list))
 
     data = list(set([path.split('/')[1] for path in path_list]))
     # 获取数据集/模型名称及个数
     print(data)
     # data = data[:-1]
 
-    temp_list = []  # 存放单个数据集的临时列表
-    dex = []  # 行列表
-    col = []  # 列列表
     df = []  # DataFrame集合
     # x=np.zeros((n_dex,n_col))#数值矩阵
     for d in range(len(data)):
+        temp_list = []  # 存放单个数据集的临时列表
+        dex = []  # 行列表
+        col = []  # 列列表
         # print(d)
         for path in path_list:
             if path.split('/')[1] == data[d]:
@@ -156,6 +163,8 @@ def generate_data_frame(date=None, model=None):
         f = open('../' + temp_list[0] + '/test.out', 'r')
         temp_data = f.readlines()
         f.close()
+
+        col2id = {}
         for line in temp_data:
             if re.search('likelihood', line):
                 # pattern = re.compile(r'-?[0-9]\d*\.\d*')   #查找数字(之查找包含小数点的)
@@ -166,38 +175,49 @@ def generate_data_frame(date=None, model=None):
                         pass
                     else:
                         col.append(t_col[i][0])
+                        col2id[t_col[i][0]] = len(col) - 1
         # print('col', len(col))
         n_col = len(col)  # 列数
         x = np.zeros((n_dex, n_col))  # 数值矩阵
         for t in range(len(temp_list)):  # 第t个临时列表中的路径
-            # print('t=',t)
-            f = open('../' + temp_list[t] + '/test.out', 'r')
-            temp_data = f.readlines()
-            f.close()
-            # 数值矩阵生成
-            for line in temp_data:
-                if re.search('likelihood', line):
-                    # print(line[11:len(line)])
-                    # print(len(line))
-                    pattern = re.compile(r'-?[0-9]\d*\.\d*')  # 查找数字(之查找包含小数点的)
-                    result = pattern.findall(line)
-                    # 数据对应填入该行
-                    t_x = re.findall(r'(\w*\(?\w\)?\w*)=(-?[0-9]\d*\.\d*)', line)
-                    # print(t_x, len(t_x))
-                    # print(t_x)
-                    for i in range(len(t_x)):
-                        if t_x[i][0] == 'time':
-                            pass
-                        else:
-                            # print(x.shape, t, i)
-                            x[t, i] = t_x[i][1]  # 由于index填入模型名称的顺序就是index列表的序号，因此行与list一一对应
+            try:
+                # print('t=',t)
+                f = open('../' + temp_list[t] + '/test.out', 'r')
+                temp_data = f.readlines()
+                f.close()
+                # 数值矩阵生成
+                for line in temp_data:
+                    if re.search('likelihood', line):
+                        # print(line[11:len(line)])
+                        # print(len(line))
+                        pattern = re.compile(r'-?[0-9]\d*\.\d*')  # 查找数字(之查找包含小数点的)
+                        result = pattern.findall(line)
+                        # 数据对应填入该行
+                        t_x = re.findall(r'(\w*\(?\w\)?\w*)=(-?[0-9]\d*\.\d*)', line)
+                        # print(t_x, len(t_x))
+                        # print(t_x)
+                        for i in range(len(t_x)):
+                            if t_x[i][0] == 'time':
+                                pass
+                            else:
+                                # print(x.shape, t, i)
+                                if t_x[i][0] in col2id.keys():
+                                    x[t, col2id[t_x[i][0]]] = t_x[i][1]  # 不同ckpt的统计指标有可能不一致
+                                # x[t, i] = t_x[i][1]  # 由于index填入模型名称的顺序就是index列表的序号，因此行与list一一对应
+            except Exception as e:
+                print(temp_list[t], ' is not identificated')
+                raise e
                     # print(x)
         # 生成DataFrame
         # print(col)
-        df.append(DataFrame(x, columns=col, index=dex).sort_values(by="pred_rmse"))
+        df.append(DataFrame(x, columns=col, index=dex).sort_values(by=sort_key))
         # 当前数据集frame生成完毕，临时列表清零
-        col = []
-        dex = []
-        temp_list = []
 
     return data, df, path_list
+
+
+if __name__ == '__main__':
+    # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model='oderssm_ode')
+    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood')
+    for df in dfs:
+        print(df)
