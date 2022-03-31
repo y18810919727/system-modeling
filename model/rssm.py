@@ -202,8 +202,8 @@ class RSSM(nn.Module):
             )
 
             kl_sum += multivariate_normal_kl_loss(
-                state_mu[-length:].detach() if step > 0 else state_mu[-length],
-                logsigma2cov(state_logsigma[-length:].detach()) if step > 0 else logsigma2cov(state_logsigma[-length]),
+                state_mu[-length:].detach() if step > 0 else state_mu[-length:],
+                logsigma2cov(state_logsigma[-length:].detach()) if step > 0 else logsigma2cov(state_logsigma[-length:]),
                 prior_s_t_seq_mean,
                 logsigma2cov(prior_s_t_seq_logsigma)
             )

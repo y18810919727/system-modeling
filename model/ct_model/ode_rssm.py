@@ -240,8 +240,8 @@ class ODERSSM(nn.Module):
             )
             # 计算loss中的kl散度项
             kl_sum += multivariate_normal_kl_loss(
-                state_mu[-length:].detach() if d > 0 else state_mu[-length],
-                logsigma2cov(state_logsigma[-length:].detach()) if d > 0 else logsigma2cov(state_logsigma[-length]),
+                state_mu[-length:].detach() if d > 0 else state_mu[-length:],
+                logsigma2cov(state_logsigma[-length:].detach()) if d > 0 else logsigma2cov(state_logsigma[-length:]),
                 prior_z_t_seq_mean,
                 logsigma2cov(prior_z_t_seq_logsigma)
             )

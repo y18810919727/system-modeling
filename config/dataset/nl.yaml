@@ -8,4 +8,4 @@ val_path: data/nl/narendra_li_val.csv
 test_path: data/nl/narendra_li_test.csv
 target_names: ['y']
 history_length: 1
-forward_length: 499
+forward_length: 239
