@@ -143,7 +143,8 @@ def generate_model(args):
             ode_solver=args.model.ode_solver,
             rtol=args.model.rtol,
             atol=args.model.atol,
-            ode_type=args.model.ode_type
+            base_t=0.1/float(args.sp) if args.model.base_t else 0,
+            ode_type=args.model.ode_type,
         )
     else:
         raise NotImplementedError

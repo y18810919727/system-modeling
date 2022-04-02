@@ -15,7 +15,7 @@ from model.vrnn import VRNN
 class ODERSSM(nn.Module):
 
     def __init__(self, input_size, state_size, observations_size,
-                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4,
+                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4, base_t=0,
                  ode_type='normal'):
 
         super(ODERSSM, self).__init__()
@@ -26,6 +26,7 @@ class ODERSSM(nn.Module):
         self.observations_size = observations_size
         self.state_size = state_size
         self.input_size = input_size
+        self.base_t = base_t
         self.gru_cell = GRUCell(2*k, 2*k)
         ode_func = ODEFunc(
             input_dim=k,
@@ -98,7 +99,7 @@ class ODERSSM(nn.Module):
             ], dim=-1), rnn_hidden_state)
 
             # dt[i]代表 t[i+1] - t[i]，预测t[i+1]时刻的h
-            h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
+            h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]-self.base_t]))[-1]
             rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
 
             h_seq.append(h)
@@ -182,7 +183,7 @@ class ODERSSM(nn.Module):
                 ], dim=-1), rnn_hidden_state
                 )
 
-                h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
+                h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]-self.base_t]))[-1]
                 rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
 
                 observations_sample = split_first_dim(x_t, (n_traj, batch_size))
@@ -244,7 +245,7 @@ class ODERSSM(nn.Module):
                 logsigma2cov(state_logsigma[-length:].detach()) if d > 0 else logsigma2cov(state_logsigma[-length:]),
                 prior_z_t_seq_mean,
                 logsigma2cov(prior_z_t_seq_logsigma)
-            )
+            ) / (1 if d == 0 else D)
 
             # 利用reparameterization trick 采样z
             z_t_seq = normal_differential_sample(
@@ -266,7 +267,7 @@ class ODERSSM(nn.Module):
                 self.diffeq_solver(h_seq,
                                    torch.stack([
                                        merge_first_two_dims(torch.zeros_like(dt[-length:, :, 0])),
-                                       merge_first_two_dims(dt[-length:, :, 0]),
+                                       merge_first_two_dims(dt[-length:, :, 0])-self.base_t,
                                    ])
                                    )[-1], (length, batch_size)
             )[:-1]
@@ -274,7 +275,7 @@ class ODERSSM(nn.Module):
             rnn_hidden_state_seq = split_first_dim(rnn_hidden_state_seq, (length, batch_size))[:-1]
             rnn_hidden_state_seq = self.update_rnn_hidden_state(h_seq, rnn_hidden_state_seq)
 
-        kl_sum = kl_sum/D
+        # kl_sum = kl_sum/D
 
         # prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
         #     torch.cat([self.external_input_seq_embed, self.h_seq[:-1]], dim=-1)

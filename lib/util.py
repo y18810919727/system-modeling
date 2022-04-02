@@ -126,6 +126,10 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
     """
     if isinstance(key_words, str):
         key_words = [key_words]
+
+    if isinstance(model, str):
+        model = [model]
+
     path_list = generating_dir(ckpt_dir, root_dir)
     date_filter = lambda path: True if date is None else path.split('/')[-1] >= date
     model_filter = lambda path: True if model is None else path.split('/')[2] in model

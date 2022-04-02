@@ -4,9 +4,10 @@ k_size: 32   # The dimensional of deterministic hidden state
 D: 1
 ode_type: 'normal' # normal: mlp; sta: mlp(tanh) - ht; orth: mlp * sin
 ode_num_layers: 1
-ode_solver: 'rk4'
+ode_solver: 'dopri5'
+base_t: false
 ode_hidden_dim: 50
-rtol: 0.001
-atol: 0.0001
+rtol: 0.0001
+atol: 0.00001
 
 

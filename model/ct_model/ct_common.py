@@ -8,6 +8,20 @@ from torchdiffeq import odeint
 import torch
 
 import torch
+from torch import nn
+
+
+class ScaleNet(nn.Module):
+    def __init__(self, scale, func):
+        super(ScaleNet, self).__init__()
+        if not isinstance(func, torch.nn.Module):
+            raise ValueError('func must be a nn.Module')
+        self.scale = scale.detach()
+        self.func = func
+
+    def __call__(self, t, z):
+        gradient = self.func(t, z)
+        return gradient * self.scale
 
 
 def linspace_vector(start, end, n_points, device):
@@ -27,6 +41,16 @@ def linspace_vector(start, end, n_points, device):
         res = torch.t(res.reshape(start.size(0), n_points))
     return res
 
+
+def odeint_uniform_split(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
+    batch_size, _ = y0.shape
+    sols = []
+    for b in range(batch_size):
+        ys = odeint(f, y0[b:b+1], tps[:, b], rtol=rtol, atol=atol, method=method, options=options)
+        sols.append(ys)
+    return torch.cat(sols, dim=1)
+
+
 def odeint_uniform_union(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
     T, N = tps.shape
     ts_norm = tps - tps[0:1]
@@ -36,8 +60,26 @@ def odeint_uniform_union(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=
     # Tidx = [torch.argwhere(ts_norm[t, n] == ts_ode).item() for t in range(T) for n in range(N)]
     Tidx = [[torch.where(ts_norm[t, n] == ts_ode)[0].item() for t in range(T)] for n in range(N)]
     ode_sols = odeint(f, y0, t=ts_ode, rtol=rtol, atol=atol, method=method, options=options)
+    # for n in range(N):
+    #     for t in range(T):
+    #         assert ts_norm[t, n].float() == ts_ode[Tidx[n][t]]
     sols_uniform = torch.stack([ode_sols[Tidx[i], i] for i in range(N)], dim=1)
     return sols_uniform
+
+
+def odeint_scale(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
+
+    if len(tps.shape) == 2:
+        tps = tps.unsqueeze(dim=-1)
+    sols = [y0]
+    y = y0
+    for i in range(tps.size(0)-1):
+        dt = tps[i+1] - tps[i]
+        nf = ScaleNet(scale=dt, func=f)
+        ys = odeint(nf, y, torch.Tensor([0.0, 1.0]).to(y0.device), rtol=rtol, atol=atol, method=method, options=options)
+        sols.append(ys[-1])
+
+    return torch.stack(sols)
 
 def odeint_uniform(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
     if len(tps.shape) == 2:
