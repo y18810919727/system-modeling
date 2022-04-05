@@ -13,7 +13,7 @@ train:
   batch_size: 512
   eval_epochs: 10
   num_workers: 8
-  kl_inc: false
+  kl_inc: true
   kl_wait: 10
   kl_max: 1.0
   min_epochs: 250

@@ -120,7 +120,7 @@ ckpt/*.pth
 !/jupyter/ErrorTest.ipynb
 !/jupyter/ErrorLog.ipynb
 !/jupyter/Redraw.ipynb
-scripts/tmp/*
+scripts/*
 /ckpt/
 /control_cstr/
 /control/figs/

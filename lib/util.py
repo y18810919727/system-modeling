@@ -93,14 +93,19 @@ def generating_dir(base_dir, root_dir):
         if file == 'tmp':
             continue
         path = os.path.join(base_dir, file)
-        if os.path.isdir(os.path.join(root_dir, path)):
-            ret = ret + generating_dir(path, root_dir)
-        elif file == 'test.out' and os.path.exists(os.path.join(root_dir, base_dir, 'best.pth')):
-            # print(path)
-            if my_filter(os.path.split(path)[0]):
-                ret.append(os.path.split(path)[0])
-            else:
-                continue
+        try:
+            if os.path.isdir(os.path.join(root_dir, path)):
+                ret = ret + generating_dir(path, root_dir)
+            elif file == 'test.out' and os.path.exists(os.path.join(root_dir, base_dir, 'best.pth')):
+                # print(path)
+                if my_filter(os.path.split(path)[0]):
+                    ret.append(os.path.split(path)[0])
+                else:
+                    continue
+        except Exception as e:
+            print(f'Generating dir {path} failed')
+            continue
+
     return ret
 
 
@@ -124,6 +129,8 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
         datasets, data_frames, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood',
             dataset='winding', sort_key='pred_rrse', key_words=['rssm', 'vrnn'])
     """
+    if key_words is None:
+        key_words=['/']
     if isinstance(key_words, str):
         key_words = [key_words]
 
@@ -134,7 +141,7 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
     date_filter = lambda path: True if date is None else path.split('/')[-1] >= date
     model_filter = lambda path: True if model is None else path.split('/')[2] in model
     dataset_filter = lambda path: True if dataset is None else path.split('/')[1] == dataset
-    key_words_filter = lambda path: True if key_words is None else reduce(or_, [kw in path for kw in key_words])
+    key_words_filter = lambda path: True if key_words is None else reduce(and_, [kw in path for kw in key_words])
 
     path_list = list(filter(lambda x: reduce(and_, [
         date_filter(x),
