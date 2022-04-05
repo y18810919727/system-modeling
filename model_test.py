@@ -17,7 +17,7 @@ import traceback
 from matplotlib import pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from common import normal_interval, Statistic
+from common import normal_interval, Statistc
 from southeast_ore_dataset import SoutheastOreDataset
 
 
@@ -142,7 +142,7 @@ def main_test(args, logging, ckpt_path):
                              num_workers=args.train.num_workers, drop_last=True,
                              collate_fn=CTSample(args.sp, args.base_tp).batch_collate_fn if args.ct_time else None)
 
-    logging('make test loader successfully')
+    logging('make test loader successfully. Length of loader: %i' % len(test_loader))
     acc_loss = 0
     acc_rrse = 0
     acc_time = 0
@@ -179,7 +179,7 @@ def main_test(args, logging, ckpt_path):
             decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
 
             # region Prediction
-            prefix_length = int(args.dataset.history_length * args.sp) if args.ct_time else args.dataset.history_length
+            prefix_length = max(int(args.dataset.history_length * args.sp), 1) if args.ct_time else args.dataset.history_length
             _, memory_state = model.forward_posterior(
                 external_input[:prefix_length], observation[:prefix_length]
             )
@@ -427,12 +427,12 @@ def main_app(args: DictConfig) -> None:
 
     from common import SimpleLogger
 
-    if not hasattr(args, 'save_dir'):
+    if not hasattr(args.test, 'test_dir') or args.test.test_dir is None:
         raise AttributeError('It should specify save_dir attribute in test mode!')
 
     # ckpt_path = '/code/SE-VAE/ckpt/southeast/seq2seq/seq2seq_ctrl_solution=2/2021-06-12_23-06-08'
     # ckpt_path = '/code/SE-VAE/ckpt/southeast/tmp/vaecl_/2021-06-18_20-52-31'
-    ckpt_path = args.save_dir
+    ckpt_path = args.test.test_dir
 
     logging = SimpleLogger(os.path.join(ckpt_path, 'test.out'))
 

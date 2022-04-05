@@ -324,6 +324,15 @@ def subsample_indexes(c, time_steps, percentage):
     return new_c, new_time_steps
 
 
+def vae_loss(kl_loss, rec_loss, epoch, kl_inc=False, kl_wait=10, kl_max=1.0):
+    if not kl_inc:
+        return kl_loss + rec_loss
+    if epoch < kl_wait:
+        kl_coef = 0.
+    else:
+        kl_coef = kl_max * (1-0.99 ** (epoch - kl_wait))
+    return kl_coef * kl_loss + rec_loss
+
 def training_loss_visualization(base_dir):
     print(base_dir)
     from matplotlib import pyplot as plt

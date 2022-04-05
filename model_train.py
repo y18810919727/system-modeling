@@ -23,7 +23,9 @@ from omegaconf import DictConfig, OmegaConf
 import traceback
 from scipy.stats import pearsonr
 import common
-from common import detect_download, init_network_weights
+from common import detect_download, init_network_weights, vae_loss
+
+
 
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = str(3)
@@ -37,7 +39,7 @@ def set_random_seed(seed):
     torch.cuda.manual_seed(rand_seed)
 
 
-def test_net(model, data_loader, args):
+def test_net(model, data_loader, epoch, args):
     acc_loss = 0
     acc_items = 0
     acc_rrse = 0
@@ -57,7 +59,12 @@ def test_net(model, data_loader, args):
 
         # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
         losses = model.call_loss(external_input, observation)
-        loss = losses['loss']
+        loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
+
+        if kl_loss != 0:
+            loss = vae_loss(kl_loss, likelihood_loss, epoch, kl_inc=args.train.kl_inc,
+                            kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
+
         outputs, _ = model.forward_posterior(external_input, observation)
         acc_time += time.time() - begin_time
 
@@ -260,9 +267,9 @@ def main_train(args, logging):
                               shuffle=True, num_workers=args.train.num_workers, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=args.train.batch_size, shuffle=False,
                             num_workers=args.train.num_workers, collate_fn=collate_fn)
-    best_loss = 1e12
+    best_rrse = 1e12
 
-    logging('make train loader successfully')
+    logging('make train loader successfully. Length of loader: %i' % len(train_loader))
 
     best_dev_epoch = -1
 
@@ -289,6 +296,9 @@ def main_train(args, logging):
 
             losses = model.call_loss(external_input, observation)
             loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
+            if kl_loss != 0:
+                loss = vae_loss(kl_loss, likelihood_loss, epoch, kl_inc=args.train.kl_inc,
+                                kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
 
             t3 = time.time()
 
@@ -311,12 +321,12 @@ def main_train(args, logging):
         ))
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
-                val_loss, val_rrse, val_time = test_net(model, val_loader, args)
+                val_loss, val_rrse, val_time = test_net(model, val_loader, epoch, args)
             logging('eval epoch = {} with loss = {:.6f} rrse = {:.4f} val_time = {:.4f}'.format(
                 epoch, val_loss, val_rrse, val_time)
             )
-            if best_loss > val_loss:
-                best_loss = val_loss
+            if best_rrse > val_rrse:
+                best_rrse = val_rrse
                 best_dev_epoch = epoch
                 ckpt = dict()
                 ckpt['model'] = model.state_dict()
@@ -328,7 +338,7 @@ def main_train(args, logging):
                     model = model.cuda()
                 logging('Save ckpt at epoch = {}'.format(epoch))
 
-            if epoch - best_dev_epoch > args.train.max_epochs_stop:
+            if epoch - best_dev_epoch > args.train.max_epochs_stop and epoch > args.train.min_epochs:
                 logging('Early stopping at epoch = {}'.format(epoch))
                 break
 

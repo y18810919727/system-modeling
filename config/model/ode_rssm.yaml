@@ -1,11 +1,12 @@
 type: ode_rssm
 state_size: 8 # The dimensional of stochastic hidden state
 k_size: 32   # The dimensional of deterministic hidden state
-D: 1
-ode_type: 'normal' # normal: mlp; sta: mlp(tanh) - ht; orth: mlp * sin
+D: 5
+ode_type: 'orth' # normal: mlp; sta: mlp(tanh) - ht; orth: mlp * sin
 ode_num_layers: 1
 ode_solver: 'dopri5'
-base_t: false
+weight: 'D_1' # average, decay, D_1
+detach: 'first' # first, half, none
 ode_hidden_dim: 50
 rtol: 0.0001
 atol: 0.00001
