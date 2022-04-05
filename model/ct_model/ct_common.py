@@ -4,7 +4,8 @@ import numpy as np
 import math
 import os
 import json
-from torchdiffeq import odeint
+# from torchdiffeq import odeint
+from torchdiffeq import odeint_adjoint as odeint
 import torch
 
 import torch
@@ -167,7 +168,7 @@ def vector_orth(x, dx_dt):
         dx_dt_projection = x_detach / x_norm * (dx_dt_norm * cos_theta)
 
         orth_dx_dt = dx_dt - dx_dt_projection
-        assert torch.norm(torch.sum(orth_dx_dt * x_detach, dim=-1)) < 1e-4
+        assert torch.cosine_similarity(orth_dx_dt, x_detach).mean() < 1e-5
     except AssertionError as e:
         print('orth: ', orth_dx_dt)
         print('x: ', x)

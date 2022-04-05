@@ -7,7 +7,8 @@ import json
 
 import torch
 from torch import nn
-from torchdiffeq import odeint as odeint
+# from torchdiffeq import odeint as odein
+from torchdiffeq import odeint_adjoint as odeint
 from model.ct_model.ct_common import odeint_uniform, time_steps_increasing, odeint_uniform_union, odeint_scale, odeint_uniform_split
 from lib.util import TimeRecorder
 import sys
