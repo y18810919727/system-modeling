@@ -17,7 +17,7 @@ import traceback
 from matplotlib import pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from common import normal_interval, Statistc
+from common import normal_interval, Statistic
 from southeast_ore_dataset import SoutheastOreDataset
 
 
