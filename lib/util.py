@@ -139,7 +139,7 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
 
     path_list = generating_dir(ckpt_dir, root_dir)
     date_filter = lambda path: True if date is None else path.split('/')[-1] >= date
-    model_filter = lambda path: True if model is None else path.split('/')[2] in model
+    model_filter = lambda path: True if model is None else (path.split('/')[2] in model or path.split('/')[3] in model)
     dataset_filter = lambda path: True if dataset is None else path.split('/')[1] == dataset
     key_words_filter = lambda path: True if key_words is None else reduce(and_, [kw in path for kw in key_words])
 
@@ -235,7 +235,7 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
 
 if __name__ == '__main__':
     # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model='oderssm_ode')
-    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='likelihood', key_words=['rssm', 'vrnn'])
+    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model=['oderssm_base'], sort_key='likelihood', key_words=None)
     print('\n'.join(path_list))
     # for df in dfs:
     #     print(pa)

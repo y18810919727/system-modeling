@@ -15,8 +15,8 @@ from model.vrnn import VRNN
 class ODERSSM(nn.Module):
 
     def __init__(self, input_size, state_size, observations_size,
-                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4, base_t=0,
-                 ode_type='normal'):
+                 ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4,
+                 ode_type='normal', detach='all', weight='average'):
 
         super(ODERSSM, self).__init__()
 
@@ -26,7 +26,6 @@ class ODERSSM(nn.Module):
         self.observations_size = observations_size
         self.state_size = state_size
         self.input_size = input_size
-        self.base_t = base_t
         self.gru_cell = GRUCell(2*k, 2*k)
         ode_func = ODEFunc(
             input_dim=k,
@@ -51,6 +50,8 @@ class ODERSSM(nn.Module):
         self.observations_seq_embed = None
         self.memory_state = None
         self.rnn_hidden_state_seq = None
+        self.detach = detach
+        self.weight = weight
 
     def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
         """
@@ -99,7 +100,7 @@ class ODERSSM(nn.Module):
             ], dim=-1), rnn_hidden_state)
 
             # dt[i]代表 t[i+1] - t[i]，预测t[i+1]时刻的h
-            h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]-self.base_t]))[-1]
+            h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
             rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
 
             h_seq.append(h)
@@ -183,8 +184,9 @@ class ODERSSM(nn.Module):
                 ], dim=-1), rnn_hidden_state
                 )
 
-                h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]-self.base_t]))[-1]
+                h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]))[-1]
                 rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
+
 
                 observations_sample = split_first_dim(x_t, (n_traj, batch_size))
                 observations_sample = observations_sample.permute(1, 0, 2)
@@ -230,7 +232,16 @@ class ODERSSM(nn.Module):
         h_seq = h_seq[:-1]
         rnn_hidden_state_seq = rnn_hidden_state_seq[:-1]
 
-        # 此处为latent overshooting，d为over_shooting的距离，这部分代码思维强度有点深，需要多看几遍。
+        if self.detach == 'first':
+            is_detach = lambda d: d > 0
+        elif self.detach == 'half':
+            is_detach = lambda d: d > int(D/2)
+        elif self.detach == 'none':
+            is_detach = lambda _: False
+        else:
+            is_detach = lambda _: False
+
+        kl_items = []
         for d in range(D):
             length = h_seq.size()[0]
 
@@ -240,12 +251,12 @@ class ODERSSM(nn.Module):
                 h_seq
             )
             # 计算loss中的kl散度项
-            kl_sum += multivariate_normal_kl_loss(
-                state_mu[-length:].detach() if d > 0 else state_mu[-length:],
-                logsigma2cov(state_logsigma[-length:].detach()) if d > 0 else logsigma2cov(state_logsigma[-length:]),
+            kl_items.append(multivariate_normal_kl_loss(
+                state_mu[-length:].detach() if is_detach(d) else state_mu[-length:],
+                logsigma2cov(state_logsigma[-length:].detach()) if is_detach(d) else logsigma2cov(state_logsigma[-length:]),
                 prior_z_t_seq_mean,
                 logsigma2cov(prior_z_t_seq_logsigma)
-            ) / (1 if d == 0 else D)
+            ))
 
             # 利用reparameterization trick 采样z
             z_t_seq = normal_differential_sample(
@@ -267,7 +278,7 @@ class ODERSSM(nn.Module):
                 self.diffeq_solver(h_seq,
                                    torch.stack([
                                        merge_first_two_dims(torch.zeros_like(dt[-length:, :, 0])),
-                                       merge_first_two_dims(dt[-length:, :, 0])-self.base_t,
+                                       merge_first_two_dims(dt[-length:, :, 0]),
                                    ])
                                    )[-1], (length, batch_size)
             )[:-1]
@@ -291,6 +302,18 @@ class ODERSSM(nn.Module):
         observations_normal_dist = self.decode_observation(outputs, mode='dist')
         # 计算loss的第二部分：观测数据的重构loss
         generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
+
+        kl_items = torch.stack(kl_items)
+        if self.weight == 'average':
+            weight = torch.ones_like(kl_items) / D
+        elif self.weight == 'decay':
+            weight = torch.softmax(torch.arange(0, D).flip(dims=(0,)).float(), dim=-1).to(kl_items.device)
+        elif self.weight == 'D_1':
+            weight = torch.ones_like(kl_items)
+            weight[0] = D
+            # weight = torch.softmax(weight, dim=-1)
+
+        kl_sum = (weight*kl_items).sum()
 
         return {
             'loss': (kl_sum - generative_likelihood)/batch_size/l,
