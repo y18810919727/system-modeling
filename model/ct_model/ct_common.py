@@ -58,13 +58,14 @@ def odeint_uniform_union(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=
     ts_ode = ts_norm[1:].reshape(-1).unique()
     ts_ode, _ = torch.cat([torch.zeros(1, device=ts_ode.device), ts_ode]).sort()
     ts_ode = torch.cat([ts_ode, ts_ode[-1:]+1e-3])
-    # Tidx = [torch.argwhere(ts_norm[t, n] == ts_ode).item() for t in range(T) for n in range(N)]
-    Tidx = [[torch.where(ts_norm[t, n] == ts_ode)[0].item() for t in range(T)] for n in range(N)]
+    Tidx = torch.zeros_like(ts_norm, dtype=torch.int64)
+    for i in range(ts_ode.size(0)):
+        Tidx[ts_norm == ts_ode[i]] = i
     ode_sols = odeint(f, y0, t=ts_ode, rtol=rtol, atol=atol, method=method, options=options)
     # for n in range(N):
     #     for t in range(T):
     #         assert ts_norm[t, n].float() == ts_ode[Tidx[n][t]]
-    sols_uniform = torch.stack([ode_sols[Tidx[i], i] for i in range(N)], dim=1)
+    sols_uniform = torch.gather(ode_sols, 0, Tidx.unsqueeze(dim=-1).repeat(1, 1, y0.size(-1)))
     return sols_uniform
 
 
