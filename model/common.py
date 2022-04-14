@@ -144,4 +144,3 @@ class DiagMultivariateNormal(torch.distributions.multivariate_normal.Multivariat
             raise NotImplementedError('Only covariance_matrix or scale_tril may be specified')
 
 
-

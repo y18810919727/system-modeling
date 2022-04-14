@@ -12,3 +12,5 @@ from model.ct_model.diffeq_solver import DiffeqSolver
 from model.ct_model.ode_func import ODEFunc
 from model.ct_model.ode_rnn import ODE_RNN
 from model.ct_model.ode_rssm import ODERSSM
+# from model.ct_model.time_aware import TimeAwareRNN
+from model.ct_model.en_time_aware import TimeAwareRNN

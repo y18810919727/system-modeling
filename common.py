@@ -284,7 +284,8 @@ def init_network_weights(net, std=0.1):
     for m in net.modules():
         if isinstance(m, nn.Linear):
             nn.init.normal_(m.weight, mean=0, std=std)
-            nn.init.constant_(m.bias, val=0)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, val=0)
 
 
 def merge_first_two_dims(tensor):

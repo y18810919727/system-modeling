@@ -71,6 +71,10 @@ class TimeRecorder:
     def __str__(self):
         return ' '.join(['{}:{:.2f}s'.format(info, t) for info, t in self.infos.items()])
 
+    def __getitem__(self, item):
+        return self.infos[item]
+
+
 # TODO: jupyter 数据总表移植
 
 

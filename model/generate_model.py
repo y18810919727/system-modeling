@@ -7,15 +7,8 @@ import json
 
 import torch
 # from model import vaeakf_combinational_linears
-from model import vaeakf_combinational_linears as vaeakf_combinational_linears
-from model.srnn import SRNN
-from model.vrnn import VRNN
-from model.deepar import DeepAR
-from model.rssm import RSSM
-from model.rnn import RNN
-from model.storn import STORN
-from model.vaernn import VAERNN
 from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
+from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR
 
 
 def generate_model(args):
@@ -131,7 +124,6 @@ def generate_model(args):
         ).float()
     elif args.model.type == 'ode_rssm':
         assert args.ct_time
-        from model.ct_model import ODERSSM
         model = ODERSSM(
             input_size=args.dataset.input_size,
             state_size=args.model.state_size,
@@ -147,6 +139,15 @@ def generate_model(args):
             weight=args.model.weight,
             detach=args.model.detach,
         )
+    elif args.model.type == 'time_aware':
+        assert args.ct_time
+        model = TimeAwareRNN(
+            k_in=args.dataset.input_size,
+            k_out=args.dataset.observation_size,
+            k_state=args.model.state_size
+        )
+
+    # def __init__(self, k_in, k_out, k_state, dropout=0., cell_factory=GRUCell, interpol="constant", **kwargs):
     else:
         raise NotImplementedError
     return model

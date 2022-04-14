@@ -1,0 +1,2 @@
+type: time_aware
+state_size: 30 # The dimensional of stochastic hidden state

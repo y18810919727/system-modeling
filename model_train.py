@@ -24,6 +24,7 @@ import traceback
 from scipy.stats import pearsonr
 import common
 from common import detect_download, init_network_weights, vae_loss
+from lib.util import TimeRecorder
 
 
 
@@ -46,6 +47,9 @@ def test_net(model, data_loader, epoch, args):
     acc_time = 0
     model.eval()
     use_cuda = args.use_cuda and torch.cuda.is_available()
+
+    tr = TimeRecorder()
+
     for i, data in enumerate(data_loader):
 
         external_input, observation = data
@@ -55,24 +59,32 @@ def test_net(model, data_loader, epoch, args):
             external_input = external_input.cuda()
             observation = observation.cuda()
 
-        begin_time = time.time()
-
+        with tr('val'):
         # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
-        losses = model.call_loss(external_input, observation)
-        loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
+            losses = model.call_loss(external_input, observation)
+            loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
 
-        if kl_loss != 0:
-            loss = vae_loss(kl_loss, likelihood_loss, epoch, kl_inc=args.train.kl_inc,
-                            kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
+            if kl_loss != 0:
+                loss = vae_loss(kl_loss, likelihood_loss, epoch, kl_inc=args.train.kl_inc,
+                                kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
 
-        outputs, _ = model.forward_posterior(external_input, observation)
-        acc_time += time.time() - begin_time
+            # region Prediction
+            prefix_length = max(int(args.dataset.history_length * args.sp),
+                                1) if args.ct_time else args.dataset.history_length
+            _, memory_state = model.forward_posterior(
+                external_input[:prefix_length], observation[:prefix_length]
+            )
+            outputs, memory_state = model.forward_prediction(
+                external_input[prefix_length:], n_traj=args.test.n_traj, memory_state=memory_state
+            )
+
+        acc_time += time.time() - tr['val']
 
         acc_loss += float(loss) * external_input.shape[1]
         acc_items += external_input.shape[1]
 
         acc_rrse += float(common.RRSE(
-            observation, model.decode_observation(outputs, mode='sample'))
+            observation[prefix_length:], outputs['predicted_seq'])
         ) * external_input.shape[1]
 
     model.train()
@@ -104,10 +116,7 @@ def main_train(args, logging):
         optimizer = torch.optim.SGD(model.parameters(), lr=args.train.optim.lr)
 
     # 学习率调整器
-    if args.train.schedule.type is None:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=1)
-        logging('No scheduler used in training !!!!')
-    elif args.train.schedule.type == 'exp':
+    if args.train.schedule.type == 'exp':
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.train.schedule.gamma)
     elif args.train.schedule.type == 'step':
         scheduler = torch.optim.lr_scheduler.StepLR(
@@ -115,6 +124,26 @@ def main_train(args, logging):
     elif args.train.schedule.type == 'cosine':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max,
                                                                eta_min=args.train.schedule.eta_min)
+    else:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=1)
+        logging('No scheduler used in training !!!!')
+
+    if hasattr(args.train.schedule, 'step_size'):
+        class PeriodSchedule:
+            def __init__(self, scheduler, periods):
+                self.scheduler = scheduler
+                self.round = 0
+                self.periods = periods
+
+            def step(self, *args, **kwargs):
+                self.round += 1
+                if self.round == self.periods:
+                    self.round = 0
+                    logging('Updating learning rate')
+                    self.scheduler.step(*args, **kwargs)
+                else:
+                    pass
+        scheduler = PeriodSchedule(scheduler, args.train.schedule.step_size)
 
     # 构建训练集和验证集
 
