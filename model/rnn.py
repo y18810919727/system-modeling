@@ -11,7 +11,7 @@ from model.func import normal_differential_sample, multivariate_normal_kl_loss, 
 
 class RNN(nn.Module):
 
-    def __init__(self, input_size, state_size, observations_size, k=16, num_layers=1, train_pred_len=60, ct_time=None, sp=None):
+    def __init__(self, input_size, state_size, observations_size, k=16, num_layers=1, ct_time=None, sp=None):
 
         super(RNN, self).__init__()
 
@@ -20,10 +20,8 @@ class RNN(nn.Module):
         self.state_size = state_size
         self.input_size = input_size
         self.num_layers = num_layers
-        if ct_time:
-            self.train_pred_len = int(train_pred_len * sp)
-        else:
-            self.train_pred_len = train_pred_len
+        self.ct_time = ct_time
+        self.sp = sp
         self.process_u = PreProcess(input_size, k)
         self.process_x = PreProcess(observations_size, k)
         self.process_z = PreProcess(state_size, k)
@@ -62,8 +60,8 @@ class RNN(nn.Module):
         x_seq = torch.stack(x_seq, dim=0)
 
         outputs = {
-            'state_mu': observations_seq,
-            'state_logsigma': -torch.ones_like(observations_seq) * float('inf'),
+            'state_mu': x_seq,
+            'state_logsigma': -torch.ones_like(x_seq) * float('inf'),
             'h_seq': h_seq,
             'x_seq': x_seq,
             'observations_seq_embed': observations_seq_embed,
@@ -73,6 +71,7 @@ class RNN(nn.Module):
 
     def forward_prediction(self, external_input_seq, n_traj=1, memory_state=None):
 
+        input_n_traj = n_traj
         n_traj = 1
         l, batch_size, _ = external_input_seq.size()
 
@@ -102,7 +101,7 @@ class RNN(nn.Module):
         )
 
         outputs = {
-            'predicted_seq_sample': predicted_seq_sample,
+            'predicted_seq_sample': predicted_seq_sample.repeat(1, 1, input_n_traj, 1),   # 入参多少回参多少
             'predicted_dist': predicted_dist,
             'predicted_seq': predicted_seq
         }
@@ -112,10 +111,15 @@ class RNN(nn.Module):
         # outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
         # l, batch_size, _ = observations_seq.shape
 
-        historical_input = external_input_seq[:-self.train_pred_len]
-        historical_ob = observations_seq[:-self.train_pred_len]
-        future_input = external_input_seq[-self.train_pred_len:]
-        # future_ob = observations_seq[-self.train_pred_len:]
+        train_pred_len = int(len(external_input_seq) / 2)
+        if self.ct_time:
+            train_pred_len = int(train_pred_len * self.sp)
+        else:
+            train_pred_len = train_pred_len
+        historical_input = external_input_seq[:train_pred_len]
+        historical_ob = observations_seq[:train_pred_len]
+        future_input = external_input_seq[train_pred_len:]
+        # future_ob = observations_seq[train_pred_len:]
         future_ob = observations_seq
 
         outputs, memory_state = self.forward_posterior(historical_input, historical_ob, memory_state)

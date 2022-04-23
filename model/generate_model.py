@@ -8,7 +8,7 @@ import json
 import torch
 # from model import vaeakf_combinational_linears
 from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
-from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR
+from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT
 
 
 def generate_model(args):
@@ -63,8 +63,7 @@ def generate_model(args):
             state_size=args.model.state_size,
             observations_size=args.dataset.observation_size,
             k=args.model.k_size,
-            num_layers=args.model.num_layers,
-            D=args.model.D
+            num_layers=args.model.num_layers
         )
     elif args.model.type == 'rnn':
         model = RNN(
@@ -73,12 +72,19 @@ def generate_model(args):
             observations_size=args.dataset.observation_size,
             k=args.model.k_size,
             num_layers=args.model.num_layers,
-            train_pred_len=args.model.train_pred_len,
             ct_time=args.ct_time,
             sp=args.sp
         )
     elif args.model.type == 'storn':
         model = STORN(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
+            k=args.model.k_size,
+            num_layers=args.model.num_layers,
+        )
+    elif args.model.type == 'storn_sqrt':
+        model = STORN_SQRT(
             input_size=args.dataset.input_size,
             state_size=args.model.state_size,
             observations_size=args.dataset.observation_size,

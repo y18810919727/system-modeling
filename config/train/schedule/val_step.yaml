@@ -1,0 +1,4 @@
+type: val_step
+lr_scheduler_nstart: 10
+lr_scheduler_nepochs: 10
+lr_scheduler_factor: 10

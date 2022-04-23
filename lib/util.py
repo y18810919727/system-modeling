@@ -85,6 +85,8 @@ def my_filter(path):
     test_s = open(log_path, 'r').readlines()
     if False:
         return False
+    elif len(test_s) < 5:
+        return False
     elif 'Error' in test_s[-2]:
         return False
     else:

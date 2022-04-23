@@ -32,9 +32,9 @@ from lib.util import TimeRecorder
 # os.environ["CUDA_VISIBLE_DEVICES"] = str(3)
 
 
-def set_random_seed(seed):
+def set_random_seed(seed, logging):
     rand_seed = np.random.randint(0, 100000) if seed is None else seed
-    print('random seed = {}'.format(rand_seed))
+    logging('random seed = {}'.format(rand_seed))
     np.random.seed(rand_seed)
     torch.manual_seed(rand_seed)
     torch.cuda.manual_seed(rand_seed)
@@ -94,7 +94,7 @@ def test_net(model, data_loader, epoch, args):
 def main_train(args, logging):
     # 设置随机种子，便于结果复现
     global scale
-    set_random_seed(args.random_seed)
+    set_random_seed(args.random_seed, logging)
     use_cuda = args.use_cuda and torch.cuda.is_available()
 
     # 根据args的配置生成模型
@@ -124,6 +124,28 @@ def main_train(args, logging):
     elif args.train.schedule.type == 'cosine':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max,
                                                                eta_min=args.train.schedule.eta_min)
+    elif args.train.schedule.type == 'val_step':
+        class ValStepSchedule:
+            def __init__(self, optimizer, lr_scheduler_nstart, lr_scheduler_nepochs, lr_scheduler_factor):
+                self.optimizer = optimizer
+                self.lr_scheduler_nstart = lr_scheduler_nstart
+                self.lr_scheduler_nepochs = lr_scheduler_nepochs
+                self.lr_scheduler_factor = lr_scheduler_factor
+
+            def step(self, all_vlosses, vloss):
+                if len(all_vlosses) > self.lr_scheduler_nepochs and \
+                        vloss >= max(all_vlosses[int(-self.lr_scheduler_nepochs - 1):-1]):
+                    # reduce learning rate
+                    lr = self.optimizer.param_groups[0]['lr'] / self.lr_scheduler_factor
+                    # adapt new learning rate in the optimizer
+                    for param_group in self.optimizer.param_groups:
+                        param_group['lr'] = lr
+                    print('\nLearning rate adapted! New learning rate {:.3e}\n'.format(lr))
+
+        scheduler = ValStepSchedule(optimizer,
+                                    args.train.schedule.lr_scheduler_nstart,
+                                    args.train.schedule.lr_scheduler_nepochs,
+                                    args.train.schedule.lr_scheduler_factor,)
     else:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=1)
         logging('No scheduler used in training !!!!')
@@ -302,6 +324,8 @@ def main_train(args, logging):
 
     best_dev_epoch = -1
 
+    all_vlosses = []
+
     # 开始训练，重复执行args.train.epochs次
     for epoch in range(args.train.epochs):
         acc_loss = 0
@@ -344,16 +368,17 @@ def main_train(args, logging):
                     epoch, i, float(loss), float(kl_loss), float(likelihood_loss), t2 - t1, t3 - t2,
                                                                                    100 * (t3 - t2) / (t3 - t1))
             )
-
-        logging('epoch = {} with train_loss = {:.4f} with kl_loss = {:.4f} with likelihood_loss = {:.4f}'.format(
-            epoch, float(acc_loss / acc_items), float(acc_kl_loss / acc_items), float(acc_likelihood_loss / acc_items)
+        lr = optimizer.state_dict()['param_groups'][0]['lr']
+        logging('epoch = {} with train_loss = {:.4f} with kl_loss = {:.4f} with likelihood_loss = {:.4f} learning_rate = {:.6f}'.format(
+            epoch, float(acc_loss / acc_items), float(acc_kl_loss / acc_items), float(acc_likelihood_loss / acc_items), lr
         ))
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
                 val_loss, val_rrse, val_time = test_net(model, val_loader, epoch, args)
-            logging('eval epoch = {} with loss = {:.6f} rrse = {:.4f} val_time = {:.4f}'.format(
-                epoch, val_loss, val_rrse, val_time)
+            logging('eval epoch = {} with loss = {:.6f} rrse = {:.4f} val_time = {:.4f} learning_rate = {:.6f}'.format(
+                epoch, val_loss, val_rrse, val_time, lr)
             )
+            all_vlosses += [val_rrse]
             if best_rrse > val_rrse:
                 best_rrse = val_rrse
                 best_dev_epoch = epoch
@@ -372,7 +397,16 @@ def main_train(args, logging):
                 break
 
         # Update learning rate
-        scheduler.step()  # 更新学习率
+        if args.train.schedule.type == 'val_step':
+            if (epoch + 1) % args.train.eval_epochs == 0:
+                scheduler.step(all_vlosses, val_rrse)
+        else:
+            scheduler.step()  # 更新学习率
+
+        # lr - Early stoping condition
+        if lr < args.train.optim.min_lr:
+            logging('lr is too low! Early stopping at epoch = {}'.format(epoch))
+            break
 
     def is_parameters_printed(parameter):
         if 'estimate' in parameter[0]:
@@ -393,15 +427,16 @@ def main_app(args: DictConfig) -> None:
     logging = SimpleLogger('./log.out')
 
     # region loading the specific model configuration (config/paras/{dataset}/{model}.yaml)
-    model_dataset_config = util.load_DictConfig(
-        os.path.join(hydra.utils.get_original_cwd(), 'config', 'paras', args.dataset.type),
-        args.model.type + '.yaml'
-    )
-    if model_dataset_config is None:
-        logging(f'Can not find model config file  in config/paras/{args.dataset.type}/{args.model.type}.yaml, '
-                f'loading default model config')
-    else:
-        args.model = model_dataset_config
+    if args.use_model_dataset_config:
+        model_dataset_config = util.load_DictConfig(
+            os.path.join(hydra.utils.get_original_cwd(), 'config', 'paras', args.dataset.type),
+            args.model.type + '.yaml'
+        )
+        if model_dataset_config is None:
+            logging(f'Can not find model config file  in config/paras/{args.dataset.type}/{args.model.type}.yaml, '
+                    f'loading default model config')
+        else:
+            args.model = model_dataset_config
     # endregion
 
     # In continuous-time mode, the last dimension of input variable is the delta of time step.

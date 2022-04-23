@@ -7,9 +7,10 @@ ct_time: no
 sp: 0.5
 base_tp: 0.1
 ctrl_solution: 1
+use_model_dataset_config: no
 train:
   epochs: 800
-  max_epochs_stop: 50
+  max_epochs_stop: 150  # 50
   batch_size: 512
   eval_epochs: 10
   num_workers: 8

@@ -13,6 +13,7 @@ from model.deepar import DeepAR
 from model.rssm import RSSM
 from model.rnn import RNN
 from model.storn import STORN
+from model.storn_sqrt import STORN_SQRT
 from model.ct_model import TimeAwareRNN, ODERSSM
 from model.rssm import RSSM
 from model.vaernn import VAERNN

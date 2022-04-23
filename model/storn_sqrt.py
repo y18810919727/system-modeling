@@ -7,18 +7,19 @@ from torch.distributions import Normal
 
 from model.common import DBlock, PreProcess, DBlock_Relu, DBlock_Relu_Mini
 from model.common import DiagMultivariateNormal as MultivariateNormal
-from common import logsigma2cov, split_first_dim, merge_first_two_dims
+from common import logsigma2cov, split_first_dim, merge_first_two_dims, sqrt_logsigma2cov
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, zeros_like_with_shape
 
+import torch.distributions as tdist
 """implementation of the STOchastich Recurent Neural network (STORN) from https://arxiv.org/abs/1411.7610 using
 unimodal isotropic gaussian distributions for inference, prior, and generating models."""
 
 
-class VAERNN(nn.Module):
+class STORN_SQRT(nn.Module):
 
     def __init__(self, input_size, state_size, observations_size, k=16, num_layers=1):
 
-        super(VAERNN, self).__init__()
+        super(STORN_SQRT, self).__init__()
 
         self.k = k
         self.observations_size = observations_size
@@ -26,19 +27,20 @@ class VAERNN(nn.Module):
         self.input_size = input_size
         self.num_layers = num_layers
 
-        self.rnn = torch.nn.GRU(k, k, num_layers)
+        self.rnn_inf = torch.nn.GRU(k, k, num_layers)
+        self.rnn_gen = torch.nn.GRU(2*k, k, num_layers)
 
         self.process_u = PreProcess(input_size, k)
         self.process_x = PreProcess(observations_size, k)
         self.process_z = PreProcess(state_size, k)
 
-        self.posterior_gauss = DBlock_Relu(2*k, 2*k, state_size)
-        self.prior_gauss = DBlock_Relu(k, 2*k, state_size)
-        self.decoder = DBlock_Relu(state_size, 2*k, observations_size)
+        self.posterior_gauss = DBlock_Relu(k, k, state_size)
+        self.prior_gauss = DBlock_Relu_Mini(k, k, state_size)
+        self.decoder = DBlock_Relu_Mini(k, k, observations_size)
 
     def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
 
-        # d0 = None if memory_state is None else memory_state['dn']
+        d0 = None if memory_state is None else memory_state['dn']
 
         l, batch_size, _ = external_input_seq.size()
 
@@ -46,28 +48,28 @@ class VAERNN(nn.Module):
         observations_seq_embed = self.process_x(observations_seq)
 
         # inference recurrence: d_t, x_t -> d_t+1
-        # d_seq, dn = self.rnn_inf(observations_seq_embed, d0)
+        d_seq, dn = self.rnn_inf(observations_seq_embed, d0)
 
         hn = zeros_like_with_shape(observations_seq, (batch_size, self.k)
                                    ) if memory_state is None else memory_state['hn']
-        # z_t = torch.zeros((batch_size, self.state_size),
-        #                             device=external_input_seq.device) if memory_state is None else memory_state['zn']
+
         state_mu = []
         state_logsigma = []
         sampled_state = []
         h_seq = [hn]
         for t in range(l):
-            # 后验网络  q(z_t | x_t, h_t)
+            # 后验网络  q(z_t | dt)
             z_t_mean, z_t_logsigma = self.posterior_gauss(
-                torch.cat([observations_seq_embed[t], hn], dim=-1)
+                d_seq[t]
             )
 
             z_t = normal_differential_sample(
-                MultivariateNormal(z_t_mean, logsigma2cov(z_t_logsigma))
+                MultivariateNormal(z_t_mean, sqrt_logsigma2cov(z_t_logsigma))
             )
 
-            # rnn_gen网络更新h_t: u_t+1, h_t ->h_t+1
-            output, _ = self.rnn(external_input_seq_embed[t].unsqueeze(dim=0),
+            # rnn_gen网络更新h_t: u_t+1, z_t, h_t ->h_t+1
+            output, _ = self.rnn_gen(
+                torch.cat([self.process_z(z_t), external_input_seq_embed[t]], dim=-1).unsqueeze(dim=0),
                 hn.unsqueeze(dim=0))
             hn = output[0]
 
@@ -100,38 +102,67 @@ class VAERNN(nn.Module):
                                    ) if memory_state is None else memory_state['hn']
 
         predicted_seq_sample = []
+        predicted_mu = []
+        predicted_sigma = []
 
         with torch.no_grad():
+            prior_z_t_mean = zeros_like_with_shape(external_input_seq, (batch_size * n_traj, self.state_size))
+            prior_z_t_logsigma = zeros_like_with_shape(external_input_seq, (batch_size * n_traj, self.state_size))
             hn = hn.repeat(n_traj, 1)
             for t in range(l):
 
-                # 先验网络: h_t -> z_t
-                prior_z_t_mean, prior_z_t_logsigma = self.prior_gauss(
-                    hn
-                )
-
-                z_t_dist = MultivariateNormal(prior_z_t_mean, logsigma2cov(prior_z_t_logsigma))
+                # encoder: z~N(0,1)
+                z_t_dist = MultivariateNormal(prior_z_t_mean, sqrt_logsigma2cov(prior_z_t_logsigma))
                 z_t = normal_differential_sample(z_t_dist)
 
-                # decoder: z_t -> x_t
-                observations_dist = self.decode_observation({'sampled_state': z_t},
-                                                            mode='dist')
+                # decoder: h_t -> x_t
+                # observations_dist = self.decode_observation({'h_seq': hn},
+                #                                             mode='dist')
+                mu, sigma = self.decoder(hn)
+                observations_dist = MultivariateNormal(
+                    mu, sqrt_logsigma2cov(sigma)
+                )
+
+                mu = split_first_dim(
+                    mu,
+                    (n_traj, batch_size)
+                )
+                mu = mu.permute(1, 0, 2)
+                sigma = split_first_dim(
+                    sigma,
+                    (n_traj, batch_size)
+                )
+                sigma = sigma.permute(1, 0, 2)
+
                 observations_sample = split_first_dim(
                     normal_differential_sample(observations_dist),
                     (n_traj, batch_size)
                 )
                 observations_sample = observations_sample.permute(1, 0, 2)
                 predicted_seq_sample.append(observations_sample)
+
+                predicted_mu.append(mu)
+                predicted_sigma.append(sigma)
+
                 external_input_seq_embed = self.process_u(external_input_seq[t]).repeat(n_traj, 1)
-                # rnn网络更新h_t: u_t+1, h_t ->h_t+1
-                output, _ = self.rnn(external_input_seq_embed.unsqueeze(dim=0),
+                # rnn_gen网络更新h_t: u_t+1, z_t, h_t ->h_t+1
+                output, _ = self.rnn_gen(
+                    torch.cat([self.process_z(z_t), external_input_seq_embed], dim=-1).unsqueeze(dim=0),
                     hn.unsqueeze(dim=0))
                 hn = output[0]
 
+        # predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
+        # predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        # predicted_dist = MultivariateNormal(
+        #     predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
+        # )
         predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
-        predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+        predicted_mu = torch.stack(predicted_mu, dim=0)
+        predicted_sigma = torch.stack(predicted_sigma, dim=0)
+        predicted_seq = torch.mean(predicted_mu, dim=2)
         predicted_dist = MultivariateNormal(
-            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
+            predicted_seq, sqrt_logsigma2cov(torch.mean(predicted_sigma, dim=2))
+
         )
 
         outputs = {
@@ -143,22 +174,20 @@ class VAERNN(nn.Module):
 
     def call_loss(self, external_input_seq, observations_seq, memory_state=None):
         outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
+
         l, batch_size, _ = observations_seq.shape
 
-        external_input_seq_embed = self.process_u(external_input_seq)
-
-        sampled_state = outputs['sampled_state']
+        # sampled_state = outputs['sampled_state']
         h_seq = outputs['h_seq']
         state_mu = outputs['state_mu']
         state_logsigma = outputs['state_logsigma']
 
         kl_sum = 0
 
-        # 先验网络预测z_t  p(z_t | h_t)   for KL loss
-        prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-            h_seq
-        )
+        prior_z_t_seq_mean = zeros_like_with_shape(external_input_seq, (batch_size, self.state_size))
+        prior_z_t_seq_logsigma = zeros_like_with_shape(external_input_seq, (batch_size, self.state_size))
 
+        # kl    z~N(0,1)
         kl_sum += multivariate_normal_kl_loss(
             state_mu,
             logsigma2cov(state_logsigma),
@@ -166,9 +195,9 @@ class VAERNN(nn.Module):
             logsigma2cov(prior_z_t_seq_logsigma)
         )
 
-        # decoder : z_t -> x_t
+        # decoder : h_t -> x_t
         observations_normal_dist = self.decode_observation(
-            {'sampled_state': sampled_state},
+            {'h_seq': h_seq},
             mode='dist')
 
         generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
@@ -185,11 +214,12 @@ class VAERNN(nn.Module):
         from state and rnn hidden state
         """
         mean, logsigma = self.decoder(
-                outputs['sampled_state']
+                outputs['h_seq']
         )
         observations_normal_dist = MultivariateNormal(
-            mean, logsigma2cov(logsigma)
+            mean, sqrt_logsigma2cov(logsigma)
         )
+
         if mode == 'dist':
             return observations_normal_dist
         elif mode == 'sample':

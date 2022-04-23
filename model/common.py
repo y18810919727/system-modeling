@@ -35,6 +35,54 @@ class DBlock(nn.Module):
         return mu, logsigma
 
 
+class DBlock_Relu(nn.Module):
+    """ A basie building block for parametralize a normal distribution.
+    It is corresponding to the D operation in the reference Appendix.
+    """
+    def __init__(self, input_size, hidden_size, output_size):
+        super(DBlock_Relu, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc_mu = nn.Linear(hidden_size, output_size)
+        self.fc_logsigma = nn.Linear(hidden_size, output_size)
+
+    def forward(self, input):
+        t = torch.relu(self.fc1(input))
+        # t = t * torch.sigmoid(self.fc2(input))
+        t = torch.relu(self.fc2(t))
+        mu = self.fc_mu(t)
+        logsigma = torch.relu(self.fc_logsigma(t))
+        return mu, logsigma
+
+
+class DBlock_Relu_Mini(nn.Module):
+    """ A basie building block for parametralize a normal distribution.
+    It is corresponding to the D operation in the reference Appendix.
+    """
+    def __init__(self, input_size, hidden_size, output_size):
+        super(DBlock_Relu_Mini, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc_mu = nn.Linear(hidden_size, output_size)
+        self.fc_logsigma = nn.Linear(hidden_size, output_size)
+
+    def forward(self, input):
+        t = torch.relu(self.fc1(input))
+        # t = t * torch.sigmoid(self.fc2(input))
+        t = self.fc2(t)
+        mu = self.fc_mu(t)
+        logsigma = torch.relu(self.fc_logsigma(t))
+        return mu, logsigma
+
+
 class PreProcess(nn.Module):
 
     def __init__(self, input_size, processed_x_size):

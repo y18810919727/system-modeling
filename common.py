@@ -189,6 +189,10 @@ def softplus(x, threshold=20):
     )
 
 
+def sqrt_softplus(x, threshold=20):
+    return x.exp().sqrt()
+
+
 def inverse_softplus(x, threshold=20):
     return torch.where(
         x < threshold, torch.log(torch.exp(x) - torch.ones_like(x)), x
@@ -197,6 +201,10 @@ def inverse_softplus(x, threshold=20):
 
 def logsigma2cov(logsigma):
     return torch.diag_embed(softplus(logsigma) ** 2)
+
+
+def sqrt_logsigma2cov(logsigma):
+    return torch.diag_embed(sqrt_softplus(logsigma))
 
 
 def get_logger(logpath, filepath, package_files=[],

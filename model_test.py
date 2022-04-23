@@ -41,6 +41,11 @@ def main_test(args, logging, ckpt_path):
         if not os.path.exists(single_figs_path):
             os.makedirs(single_figs_path)
 
+    # 独立测试
+    independent_test_path = os.path.join(figs_path, 'independent_test')
+    if not os.path.exists(independent_test_path):
+        os.makedirs(independent_test_path)
+
     model = generate_model(args)
     ckpt = torch.load(
         os.path.join(
@@ -139,7 +144,7 @@ def main_test(args, logging, ckpt_path):
         raise NotImplementedError
 
     test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False,
-                             num_workers=args.train.num_workers, drop_last=True,
+                             num_workers=args.train.num_workers, drop_last=False,
                              collate_fn=CTSample(args.sp, args.base_tp).batch_collate_fn if args.ct_time else None)
 
     logging('make test loader successfully. Length of loader: %i' % len(test_loader))
@@ -300,6 +305,7 @@ def main_test(args, logging, ckpt_path):
                 x_prefix = range(prefix_length)
                 x_suffix = range(prefix_length, observation.size()[0])
                 x_suffix_plus = range(prefix_length - 1, observation.size()[0])
+                x_limit_show = [0, 200]
                 if args.ct_time:
                     x_all = torch.cumsum(external_input[x_all, 0, -1], dim=0).cpu().numpy() / args.base_tp
                     x_prefix, x_suffix, x_suffix_plus = [x_all[x_inds] for x_inds in [x_prefix, x_suffix, x_suffix_plus]]
@@ -317,6 +323,7 @@ def main_test(args, logging, ckpt_path):
                 if args.ct_time:
                     plt.scatter(x_all, observation, s=1, c='black', zorder=3)
                 plt.legend()
+                plt.xlim(x_limit_show)
 
                 ##################图三:预测效果###########################
                 plt.subplot(223)
@@ -347,6 +354,7 @@ def main_test(args, logging, ckpt_path):
                     plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='black', zorder=3)
                 plt.ylabel(target_name)
                 plt.legend()
+                plt.xlim(x_limit_show)
 
                 ##################图四:weight map 热力图###########################
                 plt.subplot(224)
