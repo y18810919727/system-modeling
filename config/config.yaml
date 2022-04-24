@@ -6,6 +6,7 @@ save_dir: tmp
 ct_time: no
 sp: 0.5
 base_tp: 0.1
+sp_even: no
 ctrl_solution: 1
 use_model_dataset_config: no
 train:
@@ -17,7 +18,7 @@ train:
   kl_inc: true
   kl_wait: 10
   kl_max: 1.0
-  min_epochs: 250
+  min_epochs: 300
 
 test:
   plt_cnt: 20

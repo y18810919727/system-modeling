@@ -390,9 +390,10 @@ class WesternConcentrationDataset(Dataset):
 
 
 class CTSample:
-    def __init__(self, sp: float, base_tp=0.1):
+    def __init__(self, sp: float, base_tp=0.1, evenly=False):
         self.sp = np.clip(sp, 0.01, 1.0)
         self.base_tp = base_tp
+        self.evenly = evenly
 
     def batch_collate_fn(self, batch):
 
@@ -400,7 +401,7 @@ class CTSample:
         bs, l, _ = external_input.shape
         time_steps = torch.arange(external_input.size(1)) * self.base_tp
         data = torch.cat([external_input, observation], dim=-1)
-        new_data, tp = subsample_indexes(data, time_steps, self.sp)
+        new_data, tp = subsample_indexes(data, time_steps, self.sp, evenly=self.evenly)
         external_input, observation = new_data[..., :external_input.shape[-1]], new_data[..., -observation.shape[-1]:]
 
         # region [ati, t_{i} - t_{i-1}]

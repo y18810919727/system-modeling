@@ -311,7 +311,7 @@ def main_train(args, logging):
     else:
         raise NotImplementedError
 
-    collate_fn = None if not args.ct_time else CTSample(args.sp, args.base_tp).batch_collate_fn
+    collate_fn = None if not args.ct_time else CTSample(args.sp, args.base_tp, evenly=args.sp_even).batch_collate_fn
 
     # 构建dataloader
     train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size,

@@ -324,10 +324,13 @@ def read_std_mean(name, file_path, th_id):
     return stat_df.at['mean' + th_id, name], stat_df.at['std' + th_id, name]
 
 
-def subsample_indexes(c, time_steps, percentage):
+def subsample_indexes(c, time_steps, percentage, evenly=False):
     bs, l, d = c.shape
     n_to_subsample = int(l * percentage)
-    subsampled_idx = sorted(np.random.choice(np.arange(l), n_to_subsample, replace=False))
+    if evenly:
+        subsampled_idx = np.arange(l)[::int((l-1)/(n_to_subsample-1))] if n_to_subsample !=0 else np.arange(1)[0:1]
+    else:
+        subsampled_idx = sorted(np.random.choice(np.arange(l), n_to_subsample, replace=False))
     new_c = c[:,subsampled_idx]
     new_time_steps = time_steps[subsampled_idx]
     return new_c, new_time_steps
