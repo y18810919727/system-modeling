@@ -145,7 +145,7 @@ def main_test(args, logging, ckpt_path):
 
     test_loader = DataLoader(dataset, batch_size=args.test.batch_size, shuffle=False,
                              num_workers=args.train.num_workers, drop_last=False,
-                             collate_fn=CTSample(args.sp, args.base_tp).batch_collate_fn if args.ct_time else None)
+                             collate_fn=CTSample(args.sp, args.base_tp, evenly=args.sp_even).batch_collate_fn if args.ct_time else None)
 
     logging('make test loader successfully. Length of loader: %i' % len(test_loader))
     acc_loss = 0
