@@ -140,7 +140,7 @@ def main_train(args, logging):
                     # adapt new learning rate in the optimizer
                     for param_group in self.optimizer.param_groups:
                         param_group['lr'] = lr
-                    print('\nLearning rate adapted! New learning rate {:.3e}\n'.format(lr))
+                    logging('\nLearning rate adapted! New learning rate {:.3e}\n'.format(lr))
 
         scheduler = ValStepSchedule(optimizer,
                                     args.train.schedule.lr_scheduler_nstart,
