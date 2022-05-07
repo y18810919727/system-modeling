@@ -12,24 +12,25 @@ from model.informer.utils.tools import StandardScaler
 
 def mongodb_connect():
     import mongoengine
-    mongoengine.connect('nfca_db', host='dgx.server.ustb-ai3d.cn', port=27018, username='nfca', password='nfca')
+    mongoengine.connect('nfca_db', host='dgx.server.ustb-ai3d.cn', port=27017, username='nfca',
+                        password='nfca', authentication_source='nfca_db')
 
 
 def queryset2df(query_data):
     """
-    queryset转 dataframe
+    queryset转 dataframe,存在数据库多条目同一时间同一值、多条目同一时间不同值的情况，仅保留首条数据
     :return:
     """
-    dic = {"time": [], "value": []}
-    for q in query_data:
-        dic["time"].append(q['time'])
-        dic["value"].append(q['Monitoring_value'])
-    #  存在数据库多条目同一时间同一值、多条目同一时间不同值的情况，仅保留首条数据
-    df = pd.DataFrame(dic).drop_duplicates(subset=['time'])
-    return df
+    return pd.DataFrame(query_data).drop_duplicates(subset=['time']).drop(columns='_id').rename(
+        columns={'Monitoring_value': 'value'})
 
 
-# TODO: 切换成默认是未归一化的模式
+def pd_aggregation(data: pd.DataFrame):
+    """ 将Dataframe插值成1min频率的均匀时间"""
+    dense_series_1s = data.resample('1S').interpolate("linear")
+    return dense_series_1s.groupby(pd.Grouper(freq='1Min')).aggregate(np.mean)
+
+
 class SoutheastOreDataset(Dataset):
     """
     东南矿体数据集
@@ -75,9 +76,9 @@ class SoutheastOreDataset(Dataset):
         out_name = out_name[:] if len(list(out_name)[0]) > 1 else [out_name]
         self.in_columns = in_name
         self.out_columns = out_name
-        self.in_length = int(60 / self.inter_sep) * step_time[0]  # 30min
-        self.out_length = int(60 / self.inter_sep) * step_time[1]  # 10min
-        self.window_step = int(60 / self.inter_sep) * step_time[2]  # 5min
+        self.in_length = 60 // self.inter_sep * step_time[0]
+        self.out_length = 60 // self.inter_sep * step_time[1]
+        self.window_step = 60 // self.inter_sep * step_time[2]
 
         if self.ctrl_solution == 1:
             self.in_columns.remove('pressure')
@@ -87,6 +88,7 @@ class SoutheastOreDataset(Dataset):
 
         if not data_from_csv:
             # if not os.path.exists(self.data_dir) or not os.listdir(self.data_dir):
+            self.logging('----从数据库中生成东南矿体数据----')
             mongodb_connect()
             self.gene_data(1, time_range)
             self.gene_data(2, time_range)
@@ -103,6 +105,7 @@ class SoutheastOreDataset(Dataset):
             #     access_key['AccessKey ID'][0],
             #     access_key['AccessKey Secret'][0]
             # )
+            self.logging('----从csv中读取数据----')
             self.read_csv()
 
         # merge both thickeners data
@@ -111,53 +114,17 @@ class SoutheastOreDataset(Dataset):
         # get fill_round's cutting position
         round_split = [0]
         fill_round_list = list(self.data['fill_round'])
-        for i in range(1, len(fill_round_list)):
-            if fill_round_list[i - 1] != fill_round_list[i]:
-                round_split.append(i)
+        round_split.extend(i for i in range(1, len(fill_round_list)) if fill_round_list[i - 1] != fill_round_list[i])
 
         # get sample series split position in every round series
         self.split_pos = []
         for i in range(1, len(round_split)):
             this_fill_length = round_split[i] - round_split[i - 1]
             shifted_in_length = self.in_length + (self.out_length if self.ctrl_solution == 1 else 0)
-            for j in range(shifted_in_length, this_fill_length - self.out_length, self.window_step):
-                self.split_pos.append(round_split[i - 1] + j)
+            self.split_pos.extend(round_split[i - 1] + j for j in
+                                  range(shifted_in_length, this_fill_length - self.out_length, self.window_step))
 
         self.zScoreNormalization()
-
-    def linear_interpolation(self, data, start_time, end_time=None):
-        """
-        对数据进行线性插值
-        """
-        current_time = start_time
-        # datafream转list
-        data = data.to_dict('records')
-        i = 0
-        data_len = len(data)
-        return_data = {'time': [], 'value': []}
-        if current_time < data[0]['time']:
-            current_time = data[0]['time']
-        while data[data_len - 1]['time'] >= current_time and i < data_len - 1:
-            if data[i]['time'] <= current_time:
-                if current_time < data[i + 1]['time']:
-                    inter_value = data[i]['value'] + (
-                            (current_time - data[i]['time']) / (data[i + 1]['time'] - data[i]['time'])) * (
-                                          data[i + 1]['value'] - data[i]['value'])
-                    return_data['time'].append(current_time)
-                    return_data['value'].append(inter_value)
-                    current_time = current_time + datetime.timedelta(seconds=self.inter_sep)
-                    if current_time > end_time:
-                        return pd.DataFrame(return_data)
-                else:
-                    i = i + 1
-            else:
-                self.logging('error')
-        return pd.DataFrame(return_data)
-
-    def pd_aggregation(self, data, start_time, end_time=None):
-        dense_series_1s = data[start_time:end_time].resample('1S').interpolate("linear")
-        series_1m = dense_series_1s.groupby(pd.Grouper(freq='1Min')).aggregate(np.mean)
-        return series_1m
 
     @cal_time
     def get_filling_range(self, key):
@@ -203,12 +170,12 @@ class SoutheastOreDataset(Dataset):
 
         # 以底流浓度导数为标准，删除开头和结尾，win_size尺寸的滑动窗口内变化大于max_general_dt的区间
         c_f_c_range = []
+        WIN_SIZE = 10
+        max_general_dt = 5
         for t in c_f_range:
             data_c_3 = self.unfilter_data[self.point[key][1]][t[0]:t[1]]
             c_delta = data_c_3['value'].diff()
-            WIN_SIZE = 10
-            max_general_dt = 5
-            WATCHING_WINS = int(len(c_delta) / 2)
+            WATCHING_WINS = len(c_delta) // 2
             aggr_delta = [c_delta[i:i + WIN_SIZE].sum() for i in range(1, len(c_delta) - WIN_SIZE)]
             for i in range(len(aggr_delta) - WATCHING_WINS):
                 if max(aggr_delta[i:i + WATCHING_WINS]) < max_general_dt:
@@ -236,17 +203,15 @@ class SoutheastOreDataset(Dataset):
                                  columns=['feed_c', 'out_c', 'feed_f', 'out_f', 'pressure', 'fill_round'])
 
     def get_time_end(self, th_id, time_range):
-        time_list = []
-        for point_id in self.point[th_id]:
-            time_list.append(
-                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]]['time'][-1])
+        time_list = [self.unfilter_data[point_id].loc[time_range[0]: time_range[1]]['time'][-1] for point_id in
+                     self.point[th_id]]
+
         return min(time_list)
 
     def get_time_start(self, th_id, time_range):
-        time_list = []
-        for point_id in self.point[th_id]:
-            time_list.append(
-                self.unfilter_data[point_id].loc[time_range[0]:time_range[1]]['time'][0])
+        time_list = [self.unfilter_data[point_id].loc[time_range[0]: time_range[1]]['time'][0] for point_id in
+                     self.point[th_id]]
+
         return max(time_list)
 
     @cal_time
@@ -280,8 +245,7 @@ class SoutheastOreDataset(Dataset):
         tar_df = df.reset_index(drop=True)
         time_repeat_mask = tar_df.groupby('time').count() > 1
         inx = time_repeat_mask[time_repeat_mask['value'] == True].index
-        repeat_df = tar_df[tar_df['time'].isin(inx)]
-        return repeat_df
+        return tar_df[tar_df['time'].isin(inx)]
 
     @cal_time
     def gene_data(self, th_id, time_range=None):
@@ -309,14 +273,14 @@ class SoutheastOreDataset(Dataset):
                 start_time = self.get_time_start(th_id, t)
                 end_time = self.get_time_end(th_id, t)
                 df_data = self.unfilter_data[point_id].loc[start_time:end_time]
-                df_data = self.pd_aggregation(df_data, start_time=start_time, end_time=end_time)
+                df_data = pd_aggregation(df_data.drop(columns='time'))
 
                 df_data = df_data.rename(columns={'value': point_id})
                 df_list.append(df_data)
 
             df_merge = df_list[0]
             for i in range(len(df_list) - 1):
-                df_merge = df_merge.merge(df_list[i + 1], on='time')
+                df_merge = df_merge.merge(df_list[i + 1], on="time")
             df_merge['fill_round'] = inx + self.already_filled_round
             all_df = all_df.append(df_merge)
         all_df.rename(columns={self.point[th_id][i]: self.point['name'][i] for i in range(len(self.point['name']))},
@@ -334,17 +298,13 @@ class SoutheastOreDataset(Dataset):
                 self.data[self.split_pos[item] - self.in_length - self.out_length:self.split_pos[item]][[
                     'pressure']], dtype=np.float32)
             item_in = np.concatenate((item_in_1, item_in_2), axis=1)
-
-            item_out = np.array(
-                self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
-                    self.out_columns], dtype=np.float32)
         else:
             item_in = np.array(
                 self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
                     self.in_columns], dtype=np.float32)
-            item_out = np.array(
-                self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
-                    self.out_columns], dtype=np.float32)
+        item_out = np.array(
+            self.data[self.split_pos[item] - self.in_length:self.split_pos[item] + self.out_length][
+                self.out_columns], dtype=np.float32)
         return item_in, item_out
 
     def __len__(self):
@@ -365,7 +325,8 @@ class SoutheastOreDataset(Dataset):
         Returns:
             Tuple(train_set,test_set,valid_set)
         """
-        dataset_split = [sum(dataset_split[0:i]) for i in range(1, len(dataset_split) + 1)]
+        dataset_split = [sum(dataset_split[:i]) for i in range(1, len(dataset_split) + 1)]
+
         # eg.[0.6,0.8,1]
         assert dataset_split[2] == 1
         return (self.get_part_dataset(0, dataset_split[0]),
@@ -376,8 +337,8 @@ class SoutheastOreDataset(Dataset):
 
 
 if __name__ == '__main__':
-    test_range = (datetime.datetime(2021, 4, 1, 0, 0, 0), datetime.datetime(2021, 4, 10, 0, 0, 0))
-    dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5], time_range=test_range,
+    # test_range = (datetime.datetime(2021, 9, 20, 0, 0, 0), datetime.datetime(2021, 9, 22, 0, 0, 0))
+    dataset0 = SoutheastOreDataset(data_dir=os.getcwd(), step_time=[30, 10, 5],
                                    in_name=["out_f", "pressure"], out_name="out_c",
                                    logging=SimpleLogger(os.path.join('tmp', 'test.out')),
                                    data_from_csv=False)
