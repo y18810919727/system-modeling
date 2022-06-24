@@ -193,7 +193,7 @@ class DeepAR(nn.Module):
 
         方法调用时不会给额外的输入参数，需在每次forward_prediction和forward_posterior之后将解码所需的信息存储在self里
         """
-        observations_normal_dist = torch.distributions.MultivariateNormal(
+        observations_normal_dist = MultivariateNormal(
             outputs['state_mu'], logsigma2cov(outputs['state_logsigma'])
         )
         if mode == 'dist':

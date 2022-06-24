@@ -1,0 +1,8 @@
+# @package _group_
+type: ode_rnn
+k_size: 32
+ode_hidden_size: 30
+num_layers: 1
+ode_solver: dopri5
+ode_num_layers: 1
+

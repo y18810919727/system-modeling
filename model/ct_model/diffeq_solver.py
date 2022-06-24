@@ -13,6 +13,7 @@ from model.ct_model.ct_common import odeint_uniform, time_steps_increasing, odei
 from lib.util import TimeRecorder
 import sys
 
+
 class DiffeqSolver(nn.Module):
     def __init__(self, input_dim, ode_func, method,
             odeint_rtol = 1e-4, odeint_atol = 1e-5, device = torch.device("cpu")):
@@ -42,3 +43,21 @@ class DiffeqSolver(nn.Module):
             res_scale = odeint_scale(self.ode_func, first_point, time_steps_to_predict,
                                      rtol=self.odeint_rtol, atol=self.odeint_atol, method=self.ode_method)
             return res_scale
+
+
+def solve_diffeq(ode_func, first_point, time_steps_to_predict, ode_method, odeint_rtol=1e-4, odeint_atol=1e-5):
+
+    time_steps_to_predict = time_steps_increasing(time_steps_to_predict)
+    if len(time_steps_to_predict.shape) == 1:
+        return odeint(ode_func, first_point, time_steps_to_predict,
+                      rtol=odeint_rtol, atol=odeint_atol, method=ode_method)
+
+    elif (time_steps_to_predict[:, 1:] - time_steps_to_predict[:, :-1] == 0).all():
+        time_steps_to_predict = time_steps_to_predict[:, 0]
+        return odeint(ode_func, first_point, time_steps_to_predict,
+                      rtol=odeint_rtol, atol=odeint_atol, method=ode_method)
+
+    else:
+        res_scale = odeint_scale(ode_func, first_point, time_steps_to_predict,
+                                 rtol=odeint_rtol, atol=odeint_atol, method=ode_method)
+        return res_scale

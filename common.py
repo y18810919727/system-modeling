@@ -100,9 +100,9 @@ def RRSE(y_gt, y_pred):
     elif len(y_gt.shape) == 2:
         # each shape (n_seq, n_outputs)
         se = torch.sum((y_gt - y_pred) ** 2, dim=0)
-        rse = se / torch.sum(
+        rse = se / (torch.sum(
             (y_gt - torch.mean(y_gt, dim=0)) ** 2, dim=0
-        )
+        )+1e-6)
         return torch.mean(torch.sqrt(rse))
     else:
         raise AttributeError
@@ -139,10 +139,9 @@ def Statistic(variable_data, split=False):
 
     """
     begin_time = time.time()
-    external_input, observation, pred_observations_sample, decode_observations, prefix_length, model = variable_data
+    observation, pred_observations_sample, decode_observations, prefix_length = variable_data
 
-    losses = model.call_loss(external_input, observation)
-    loss = losses['loss']
+    # 每条数据单独算loss太慢了
 
     # 统计参数1： 预测的rrse
     prediction_rrse = RRSE(observation[prefix_length:], pred_observations_sample)
@@ -176,11 +175,14 @@ def Statistic(variable_data, split=False):
     end_time = time.time()
 
     if split:
-        return np.array([float(loss), float(ob_rrse), *ob_rrse_single, *ob_pear,
+        return np.array([float(ob_rrse), *ob_rrse_single, *ob_pear,
                 float(prediction_rrse), *prediction_rrse_single, *prediction_pearsonr, float(prediction_rmse), *prediction_rmse_single, end_time - begin_time], dtype=np.float32)
     else:
-        return [float(loss), float(ob_rrse), ob_rrse_single, ob_pear,
+        return [float(ob_rrse), ob_rrse_single, ob_pear,
                 float(prediction_rrse), prediction_rrse_single, prediction_pearsonr, float(prediction_rmse), prediction_rmse_single, end_time - begin_time]
+
+    # return [float(ob_rrse), ob_rrse_single, ob_pear,
+    #         float(prediction_rrse), prediction_rrse_single, prediction_pearsonr, float(prediction_rmse), prediction_rmse_single, end_time - begin_time]
 
 
 def softplus(x, threshold=20):
@@ -324,6 +326,16 @@ def read_std_mean(name, file_path, th_id):
     return stat_df.at['mean' + th_id, name], stat_df.at['std' + th_id, name]
 
 
+def onceexp(data,a):#y一次指数平滑法
+    x=[]
+    t=data[0]
+    x.append(t)
+    for i in range(len(data)-1):
+        t=t+a*(data[i+1]-t)
+        x.append(t)
+    return np.stack(x)
+
+
 def subsample_indexes(c, time_steps, percentage, evenly=False):
     bs, l, d = c.shape
     n_to_subsample = int(l * percentage)
@@ -357,45 +369,79 @@ def training_loss_visualization(base_dir):
     x_dataset_eval_epoch = []
     y_dataset_eval_loss = []
     y_dataset_eval_train_loss = []
+    train_epochs = []
+    eval_rrse = []
     f = open(os.path.join(base_dir, 'log.out'))
     data = f.readlines()
     f.close()
     for line in data:
-        if re.search('train_loss', line):
-            pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
-            result = pattern.findall(line)
-            x_dataset_time.append(float(result[0]))
-            y_dataset_train_loss.append(float(result[2]))
-            y_dataset_kl_loss.append(float(result[3]))
-            y_dataset_likelihood_loss.append(float(result[4]))
-        elif re.search('rrse', line):
-            y_dataset_eval_train_loss.append(float(result[2]))
-            # print(y_dataset_eval_train_loss)
-            pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
-            result = pattern.findall(line)
-            x_dataset_eval_epoch.append(float(result[1]))
-            y_dataset_eval_loss.append(float(result[2]))
-    plt.figure()
+        try:
+            if re.search('train_loss', line):
+                pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
+                result = pattern.findall(line)
+                x_dataset_time.append(float(result[0]))
+                train_epochs.append(int(result[1]))
+                y_dataset_train_loss.append(float(result[2]))
+                y_dataset_kl_loss.append(float(result[3]))
+                y_dataset_likelihood_loss.append(float(result[4]))
+            elif re.search('eval', line) and line.startswith('Time_sec'):
+                y_dataset_eval_train_loss.append(float(result[2]))
+                # print(y_dataset_eval_train_loss)
+                pattern = re.compile(r'-?[0-9]\d*\.?\d*')  # 查找数字
+                result = pattern.findall(line)
+                x_dataset_eval_epoch.append(float(result[1]))
+                y_dataset_eval_loss.append(float(result[2]))
+                eval_rrse.append(float(result[3]))
+        except Exception as e:
+            pass
+
+    plt.figure(figsize=(11,10))
+    ax = plt.subplot(4, 1, 1)
     plt.plot(x_dataset_time, y_dataset_train_loss, color='red', label="train_loss")
     plt.plot(x_dataset_time, y_dataset_kl_loss, color='blue', label="kl_loss")
     plt.plot(x_dataset_time, y_dataset_likelihood_loss, color='black', label="likelihood_loss")
     plt.xlabel('Time(s)')
-    plt.ylabel('loss')
-    plt.title('train_loss')
+    ax.set_ylabel('loss')
+    ax.set_title('train_loss')
     # plt.xticks(())
     # plt.yticks(())
     plt.legend()
-    plt.savefig(os.path.join(base_dir, 'train_loss.png'))
+    # plt.savefig(os.path.join(base_dir, 'train_loss.png'))
 
-    plt.figure()
-    fig, ax = plt.subplots(1, 1)
+    ax = plt.subplot(4, 1, 2)
     plt.plot(x_dataset_eval_epoch, y_dataset_eval_loss, 'g-', label='eval_loss')
     plt.plot(x_dataset_eval_epoch, y_dataset_eval_train_loss, 'r-', label='train_loss')
     plt.legend()
     plt.xlabel('epochs')
     ax.set_ylabel('eval_loss')
     ax.set_title('eval_loss')
-    plt.savefig(os.path.join(base_dir, 'val_loss.png'))
+
+    ax = plt.subplot(4, 1, 3)
+    # plt.plot(x_dataset_eval_epoch, y_dataset_eval_loss, 'g-', label='eval_loss')
+    plt.plot(x_dataset_eval_epoch, eval_rrse, 'r-', label='rrse')
+    plt.legend()
+    plt.xlabel('epochs')
+    ax.set_ylabel('eval_rrse')
+    ax.set_title('eval_rrse')
+
+    ax = plt.subplot(4, 1, 4)
+    # plt.plot(x_dataset_eval_epoch, y_dataset_eval_loss, 'g-', label='eval_loss')
+    plt.plot(x_dataset_eval_epoch, eval_rrse, 'r-', label='lr')
+    plt.legend()
+    plt.xlabel('epochs')
+    ax.set_ylabel('lr')
+    ax.set_title('learning rate')
+
+    plt.tight_layout()
+
+    plt.savefig(os.path.join(base_dir, 'train_visualize.png'))
+
     plt.close()  # 关闭图像，避免出现warning
     # plt.plot(x_dataset_time,y_dataset_train_loss,color='red',label="train_loss")
     # plt.plot(x_dataset_eval_epoch,y_dataset_eval_loss,color='black',label="loss")
+
+
+if __name__ == '__main__':
+    base_dir = '/root/data/SE-VAE/ckpt/winding/ct_True/ode_rssm_schedule/ode_rssm_ct_time=True,model.iw_trajs=1,model.k_size=16,model.ode_ratio=all,model.ode_solver=rk4,model.ode_type=orth,model.state_size=16,random_seed=0,sp=0.5,train.batch_size=512,train/schedule=val_step/2022-05-04_07-49-29'
+    training_loss_visualization(base_dir)
+

@@ -43,7 +43,7 @@ class RNN(nn.Module):
         x_seq = []
         for t in range(l):
 
-            # encoder网络更新h_t: u_t+1, x_t+1, h_t -> h_t+1
+            # encoder网络更新h_t: u_t+1, x_t+1, h_t -> h_t+1 u_t, x_t, h_t -> h_{t+1}
             output, _ = self.rnn_encoder(
                 torch.cat([external_input_seq_embed[t], observations_seq_embed[t]], dim=-1).unsqueeze(dim=0),
                 hn.unsqueeze(dim=0)

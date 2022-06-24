@@ -12,6 +12,51 @@ from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov
 from model.func import weighted_linear, normal_differential_sample
 
 
+class ValStepSchedule:
+    def __init__(self, optimizer, lr_scheduler_nstart, lr_scheduler_nepochs, lr_scheduler_factor, logger):
+        self.optimizer = optimizer
+        self.lr_scheduler_nstart = lr_scheduler_nstart
+        self.lr_scheduler_nepochs = lr_scheduler_nepochs
+        self.lr_scheduler_factor = lr_scheduler_factor
+        self.logger = logger
+
+    def step(self, all_val_metrices, val_metric):
+        if len(all_val_metrices) > self.lr_scheduler_nepochs and \
+                val_metric >= max(all_val_metrices[int(-self.lr_scheduler_nepochs - 1):-1]):
+            # reduce learning rate
+            # lr = self.optimizer.param_groups[0]['lr'] / self.lr_scheduler_factor
+            # adapt new learning rate in the optimizer
+            for param in self.optimizer.param_groups:
+                param['lr'] = param['lr'] / self.lr_scheduler_factor
+
+    # def get_lr(self):
+    #     if not self._get_lr_called_within_step:
+    #         warnings.warn("To get the last learning rate computed by the scheduler, "
+    #                       "please use `get_last_lr()`.", UserWarning)
+    #
+    #     if self.last_epoch == 0:
+    #         return [group['lr'] for group in self.optimizer.param_groups]
+    #     return [group['lr'] * self.gamma
+    #             for group in self.optimizer.param_groups]
+
+
+class PeriodSchedule:
+    def __init__(self, scheduler, periods, logger):
+        self.scheduler = scheduler
+        self.round = 0
+        self.periods = periods
+        self.logger = logger
+
+    def step(self, *args, **kwargs):
+        self.round += 1
+        if self.round == self.periods:
+            self.round = 0
+            self.logger('Updating learning rate')
+            self.scheduler.step(*args, **kwargs)
+        else:
+            pass
+
+
 class DBlock(nn.Module):
     """ A basie building block for parametralize a normal distribution.
     It is corresponding to the D operation in the reference Appendix.
@@ -157,6 +202,10 @@ class DiagMultivariateNormal(torch.distributions.multivariate_normal.Multivariat
                        'scale_tril': constraints.lower_cholesky}
 
     def __init__(self, loc, covariance_matrix=None, precision_matrix=None, scale_tril=None, validate_args=None):
+
+        if torch.all(covariance_matrix==0):
+            covariance_matrix = torch.diag_embed(covariance_matrix.diagonal(dim1=-2, dim2=-1) + 1e-9)
+
         if loc.dim() < 1:
             raise ValueError("loc must be at least one-dimensional.")
         if (covariance_matrix is not None) + (scale_tril is not None) + (precision_matrix is not None) != 1:

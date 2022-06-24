@@ -8,7 +8,8 @@ import json
 import torch
 # from model import vaeakf_combinational_linears
 from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
-from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT
+from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT, ODE_RNN, ODEVRNN
+# from model.ct_model.ode_rssm_merge import ODERSSM_Merge
 
 
 def generate_model(args):
@@ -144,6 +145,30 @@ def generate_model(args):
             ode_type=args.model.ode_type,
             weight=args.model.weight,
             detach=args.model.detach,
+            ode_ratio=args.model.ode_ratio,
+            iw_trajs=args.model.iw_trajs,
+            odernn_encoder=args.model.odernn_encoder,
+            z_in_ode=args.model.z_in_ode
+        )
+    elif args.model.type == 'ode_vrnn':
+        assert args.ct_time
+        model = ODEVRNN(
+            input_size=args.dataset.input_size,
+            state_size=args.model.state_size,
+            observations_size=args.dataset.observation_size,
+            ode_num_layers=args.model.ode_num_layers,
+            k=args.model.k_size,
+            D=args.model.D,
+            ode_hidden_dim=args.model.ode_hidden_dim,
+            ode_solver=args.model.ode_solver,
+            rtol=args.model.rtol,
+            atol=args.model.atol,
+            ode_type=args.model.ode_type,
+            weight=args.model.weight,
+            detach=args.model.detach,
+            ode_ratio=args.model.ode_ratio,
+            iw_trajs=args.model.iw_trajs,
+            ob_bptt=args.model.ob_bptt
         )
     elif args.model.type == 'time_aware':
         assert args.ct_time
@@ -151,6 +176,16 @@ def generate_model(args):
             k_in=args.dataset.input_size,
             k_out=args.dataset.observation_size,
             k_state=args.model.state_size
+        )
+    elif args.model.type == 'ode_rnn':
+        assert args.ct_time
+        model = ODE_RNN(
+            input_size=args.dataset.input_size,
+            output_size=args.dataset.observation_size,
+            hidden_size=args.model.k_size,
+            ode_hidden_dim=args.model.ode_hidden_size,
+            ode_solver=args.model.ode_solver,
+            ode_num_layers=args.model.ode_num_layers,
         )
 
     # def __init__(self, k_in, k_out, k_state, dropout=0., cell_factory=GRUCell, interpol="constant", **kwargs):

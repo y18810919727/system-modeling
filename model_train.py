@@ -15,7 +15,7 @@ import sys
 import pandas
 import pandas as pd
 
-from dataset import FakeDataset, WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
+from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
 from torch.utils.data import DataLoader
 from lib import util
 import hydra
@@ -25,6 +25,7 @@ from scipy.stats import pearsonr
 import common
 from common import detect_download, init_network_weights, vae_loss
 from lib.util import TimeRecorder
+from model.common import PeriodSchedule, ValStepSchedule
 
 
 
@@ -44,6 +45,7 @@ def test_net(model, data_loader, epoch, args):
     acc_loss = 0
     acc_items = 0
     acc_rrse = 0
+    acc_rmse = 0
     acc_time = 0
     model.eval()
     use_cuda = args.use_cuda and torch.cuda.is_available()
@@ -78,7 +80,7 @@ def test_net(model, data_loader, epoch, args):
                 external_input[prefix_length:], n_traj=args.test.n_traj, memory_state=memory_state
             )
 
-        acc_time += time.time() - tr['val']
+        acc_time += tr['val']
 
         acc_loss += float(loss) * external_input.shape[1]
         acc_items += external_input.shape[1]
@@ -87,8 +89,12 @@ def test_net(model, data_loader, epoch, args):
             observation[prefix_length:], outputs['predicted_seq'])
         ) * external_input.shape[1]
 
+        acc_rmse += float(common.RMSE(
+            observation[prefix_length:], outputs['predicted_seq'])
+        ) * external_input.shape[1]
+
     model.train()
-    return acc_loss / acc_items, acc_rrse / acc_items, acc_time / acc_items
+    return acc_loss / acc_items, acc_rrse / acc_items, acc_rmse/acc_items, acc_time / acc_items
 
 
 def main_train(args, logging):
@@ -125,47 +131,17 @@ def main_train(args, logging):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train.schedule.T_max,
                                                                eta_min=args.train.schedule.eta_min)
     elif args.train.schedule.type == 'val_step':
-        class ValStepSchedule:
-            def __init__(self, optimizer, lr_scheduler_nstart, lr_scheduler_nepochs, lr_scheduler_factor):
-                self.optimizer = optimizer
-                self.lr_scheduler_nstart = lr_scheduler_nstart
-                self.lr_scheduler_nepochs = lr_scheduler_nepochs
-                self.lr_scheduler_factor = lr_scheduler_factor
-
-            def step(self, all_vlosses, vloss):
-                if len(all_vlosses) > self.lr_scheduler_nepochs and \
-                        vloss >= max(all_vlosses[int(-self.lr_scheduler_nepochs - 1):-1]):
-                    # reduce learning rate
-                    lr = self.optimizer.param_groups[0]['lr'] / self.lr_scheduler_factor
-                    # adapt new learning rate in the optimizer
-                    for param_group in self.optimizer.param_groups:
-                        param_group['lr'] = lr
-                    logging('\nLearning rate adapted! New learning rate {:.3e}\n'.format(lr))
-
         scheduler = ValStepSchedule(optimizer,
                                     args.train.schedule.lr_scheduler_nstart,
                                     args.train.schedule.lr_scheduler_nepochs,
-                                    args.train.schedule.lr_scheduler_factor,)
+                                    args.train.schedule.lr_scheduler_factor,
+                                    logging)
     else:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=1)
         logging('No scheduler used in training !!!!')
 
     if hasattr(args.train.schedule, 'step_size'):
-        class PeriodSchedule:
-            def __init__(self, scheduler, periods):
-                self.scheduler = scheduler
-                self.round = 0
-                self.periods = periods
-
-            def step(self, *args, **kwargs):
-                self.round += 1
-                if self.round == self.periods:
-                    self.round = 0
-                    logging('Updating learning rate')
-                    self.scheduler.step(*args, **kwargs)
-                else:
-                    pass
-        scheduler = PeriodSchedule(scheduler, args.train.schedule.step_size)
+        scheduler = PeriodSchedule(scheduler, args.train.schedule.step_size, logging)
 
     # 构建训练集和验证集
 
@@ -294,6 +270,23 @@ def main_train(args, logging):
         ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 
     elif args.dataset.type.startswith('southeast'):
+        from dataset import SoutheastThickener
+
+        data = np.load(os.path.join(hydra.utils.get_original_cwd(), args.dataset.data_path))
+        train_dataset = SoutheastThickener(data,
+                                           length=args.dataset.history_length + args.dataset.forward_length,
+                                           step=args.dataset.step,
+                                           dataset_type='train', io=args.dataset.io,
+                                           smooth_alpha=args.dataset.smooth_alpha
+                                           )
+
+        val_dataset = SoutheastThickener(data,
+                                         length=args.dataset.history_length + args.dataset.forward_length,
+                                         step=args.dataset.step,
+                                         dataset_type='val', io=args.dataset.io, smooth_alpha=args.dataset.smooth_alpha
+                                         )
+
+    elif args.dataset.type.startswith('southeast'):
 
         from southeast_ore_dataset import SoutheastOreDataset
 
@@ -318,13 +311,15 @@ def main_train(args, logging):
                               shuffle=True, num_workers=args.train.num_workers, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=args.train.batch_size, shuffle=False,
                             num_workers=args.train.num_workers, collate_fn=collate_fn)
-    best_rrse = 1e12
+    # best_rrse = 1e12
+    best_rmse = 1e12
 
     logging('make train loader successfully. Length of loader: %i' % len(train_loader))
 
     best_dev_epoch = -1
 
-    all_vlosses = []
+    # all_val_rrse = []
+    all_val_rmse = []
 
     # 开始训练，重复执行args.train.epochs次
     for epoch in range(args.train.epochs):
@@ -374,13 +369,15 @@ def main_train(args, logging):
         ))
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
-                val_loss, val_rrse, val_time = test_net(model, val_loader, epoch, args)
-            logging('eval epoch = {} with loss = {:.6f} rrse = {:.4f} val_time = {:.4f} learning_rate = {:.6f}'.format(
-                epoch, val_loss, val_rrse, val_time, lr)
+                val_loss, val_rrse, val_rmse, val_time = test_net(model, val_loader, epoch, args)
+            logging('eval epoch = {} with loss = {:.6f} rmse = {:.4f} rrse = {:.4f} val_time = {:.4f} learning_rate = {:.6f}'.format(
+                epoch, val_loss, val_rmse, val_rrse, val_time, lr)
             )
-            all_vlosses += [val_rrse]
-            if best_rrse > val_rrse:
-                best_rrse = val_rrse
+            all_val_rmse.append(val_rmse)
+            scheduler.step(all_val_rmse, val_rmse)
+
+            if best_rmse > val_rmse:
+                best_rmse = val_rmse
                 best_dev_epoch = epoch
                 ckpt = dict()
                 ckpt['model'] = model.state_dict()
@@ -396,11 +393,9 @@ def main_train(args, logging):
                 logging('Early stopping at epoch = {}'.format(epoch))
                 break
 
+
         # Update learning rate
-        if args.train.schedule.type == 'val_step':
-            if (epoch + 1) % args.train.eval_epochs == 0:
-                scheduler.step(all_vlosses, val_rrse)
-        else:
+        if not args.train.schedule.type == 'val_step':
             scheduler.step()  # 更新学习率
 
         # lr - Early stoping condition
@@ -408,16 +403,7 @@ def main_train(args, logging):
             logging('lr is too low! Early stopping at epoch = {}'.format(epoch))
             break
 
-    def is_parameters_printed(parameter):
-        if 'estimate' in parameter[0]:
-            return True
-        return False
-
-    logging(list(
-        filter(
-            is_parameters_printed,
-            model.named_parameters())
-    ))
+    logging('Training finished')
 
 
 @hydra.main(config_path='config', config_name="config.yaml")

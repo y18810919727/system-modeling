@@ -24,14 +24,14 @@ test:
   plt_cnt: 20
   test_dir: ~
   batch_size: 128
-  n_traj : 32
+  n_traj : 64
   plt_n_traj: 4
   plt_single: no
 
 defaults:
   - model: vaecl
   - train/optim: adam
-  - train/schedule: exp
+  - train/schedule: val_step
   - dataset: winding
 
 hydra:
@@ -46,5 +46,5 @@ hydra:
   run:
     dir: ckpt/${dataset.type}/ct_${ct_time}/${save_dir}/${model.type}_${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
   sweep:
-    dir: ckpt/${dataset.type}/${save_dir}
+    dir: ckpt/${dataset.type}/ct_${ct_time}/${save_dir}
     subdir: ${model.type}_${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}

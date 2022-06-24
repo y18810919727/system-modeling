@@ -5,6 +5,7 @@ import math
 import os
 import json
 # from torchdiffeq import odeint
+from model.common import MLP
 from torchdiffeq import odeint_adjoint as odeint
 import torch
 

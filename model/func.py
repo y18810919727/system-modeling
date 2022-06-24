@@ -70,6 +70,20 @@ def multivariate_normal_kl_loss(mu1, cov1, mu2, cov2):
     return torch.sum(kl)
 
 
+def kld_gauss(mu_q, logvar_q, mu_p, logvar_p, sum=True):
+    # Goal: Minimize KL divergence between q_pi(z|xi) || p(z|xi)
+    # This is equivalent to maximizing the ELBO: - D_KL(q_phi(z|xi) || p(z)) + Reconstruction term
+    # This is equivalent to minimizing D_KL(q_phi(z|xi) || p(z))
+    term1 = logvar_p - logvar_q - 1
+    term2 = (torch.exp(logvar_q) + (mu_q - mu_p) ** 2) / torch.exp(logvar_p)
+    if sum:
+        kld = 0.5 * torch.sum(term1 + term2)
+    else:
+        kld = 0.5 * (term1 + term2)
+
+    return kld
+
+
 def zeros_like_with_shape(tensor, shape=None):
     if shape is None:
         shape = tensor.shape

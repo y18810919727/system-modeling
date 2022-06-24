@@ -1,0 +1,12 @@
+type: old_southeas
+input_size: 2
+observation_size: 1
+in_length: 30
+out_length: 10
+window_step: 5
+data_from_csv: yes
+in_columns: ["out_f", "pressure"]
+out_columns: "out_c"
+target_names: ['Output_Concentration']
+history_length: 180
+forward_length: 60

@@ -219,7 +219,7 @@ class HOGRUCell(nn.Module):
         self.Lh_lin = nn.Linear(k_state, k_state, bias=True)
 
         self.Ly = nn.Sequential(
-            nn.Linear(k_state, k_out, bias=False),
+            nn.Linear(k_state, k_state, bias=False),
             nn.Tanh(),
             nn.Linear(k_state, k_out, bias=False)
         )

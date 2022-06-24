@@ -10,14 +10,13 @@ import time
 import pandas as pd
 import numpy as np
 from lib import util
-from dataset import FakeDataset
 from torch.utils.data import DataLoader
 from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
 import traceback
 from matplotlib import pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from common import normal_interval, Statistic
+from common import normal_interval, Statistic, vae_loss
 from southeast_ore_dataset import SoutheastOreDataset
 
 
@@ -41,7 +40,7 @@ def main_test(args, logging, ckpt_path):
         if not os.path.exists(single_figs_path):
             os.makedirs(single_figs_path)
 
-    # 独立测试
+    # 创建独立画图的目录
     independent_test_path = os.path.join(figs_path, 'independent_test')
     if not os.path.exists(independent_test_path):
         os.makedirs(independent_test_path)
@@ -58,11 +57,7 @@ def main_test(args, logging, ckpt_path):
     model.eval()
     logging(model)
 
-    if args.dataset.type == 'fake':
-        test_df = pd.read_csv(hydra.utils.get_original_cwd(), 'data/fake_test.csv')
-        dataset = FakeDataset(test_df)
-
-    elif args.dataset.type.startswith('west'):
+    if args.dataset.type.startswith('west'):
 
         objects = pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), 'data', 'west', 'data_url.csv')
@@ -128,6 +123,17 @@ def main_test(args, logging, ckpt_path):
         dataset = WindingDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type.startswith('southeast'):
+        from dataset import SoutheastThickener
+
+        data = np.load(os.path.join(hydra.utils.get_original_cwd(), args.dataset.data_path))
+        dataset = SoutheastThickener(data,
+                                     length=args.dataset.history_length + args.dataset.forward_length,
+                                     step=args.dataset.step,
+                                     dataset_type='test', io=args.dataset.io, smooth_alpha=args.dataset.smooth_alpha
+                                     )
+
     elif args.dataset.type == 'southeast':
         dataset_split = [0.6, 0.2, 0.2]
         _, _, dataset, scaler = SoutheastOreDataset(
@@ -148,10 +154,8 @@ def main_test(args, logging, ckpt_path):
                              collate_fn=CTSample(args.sp, args.base_tp, evenly=args.sp_even).batch_collate_fn if args.ct_time else None)
 
     logging('make test loader successfully. Length of loader: %i' % len(test_loader))
-    acc_loss = 0
-    acc_rrse = 0
-    acc_time = 0
-    acc_name = ['likelihood', 'ob_rrse'] + \
+    acc_items = 0
+    acc_name = ['vll', 'mll',  'ob_rrse'] + \
                ['ob_{}_rrse'.format(name) for name in args.dataset.target_names] + \
                ['ob_{}_pear'.format(name) for name in args.dataset.target_names] + \
                ['pred_rrse'] + \
@@ -159,16 +163,16 @@ def main_test(args, logging, ckpt_path):
                ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + \
                ['pred_rmse'] + \
                ['pred_{}_rmse'.format(name) for name in args.dataset.target_names] + \
-               ['time']
+               ['time', 'num']
     acc_info = np.zeros(len(acc_name))
 
     def single_data_generator(acc_info):
         for i, data in enumerate(test_loader):
 
             external_input, observation = data
-            if args.dataset.type == 'southeast':
-                inverse_ex_input = scaler.inverse_transform_input(external_input)
-                inverse_out = scaler.inverse_transform_output(observation)
+            # if args.dataset.type == 'southeast':
+            #     inverse_ex_input = scaler.inverse_transform_input(external_input)
+            #     inverse_out = scaler.inverse_transform_output(observation)
 
             external_input = external_input.permute(1, 0, 2)
             observation = observation.permute(1, 0, 2)
@@ -177,20 +181,21 @@ def main_test(args, logging, ckpt_path):
                 external_input = external_input.cuda()
                 observation = observation.cuda()
 
-            outputs, memory_state = model.forward_posterior(external_input, observation)
+            with torch.no_grad():
+                outputs, memory_state = model.forward_posterior(external_input, observation)
 
-            decode_observations_dist = model.decode_observation(outputs, mode='dist')
-            decode_observations = model.decode_observation(outputs, mode='sample')
-            decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
+                decode_observations_dist = model.decode_observation(outputs, mode='dist')
+                decode_observations = model.decode_observation(outputs, mode='sample')
+                decode_observation_low, decode_observation_high = normal_interval(decode_observations_dist, 2)
 
-            # region Prediction
-            prefix_length = max(int(args.dataset.history_length * args.sp), 1) if args.ct_time else args.dataset.history_length
-            _, memory_state = model.forward_posterior(
-                external_input[:prefix_length], observation[:prefix_length]
-            )
-            outputs, memory_state = model.forward_prediction(
-                external_input[prefix_length:], args.test.n_traj, memory_state=memory_state
-            )
+                # region Prediction
+                prefix_length = max(int(args.dataset.history_length * args.sp), 1) if args.ct_time else args.dataset.history_length
+                _, memory_state = model.forward_posterior(
+                    external_input[:prefix_length], observation[:prefix_length]
+                )
+                outputs, memory_state = model.forward_prediction(
+                    external_input[prefix_length:], args.test.n_traj, memory_state=memory_state
+                )
             pred_observations_dist = outputs['predicted_dist']
             pred_observations_sample = outputs['predicted_seq']
             pred_observations_sample_traj = outputs['predicted_seq_sample']
@@ -204,15 +209,19 @@ def main_test(args, logging, ckpt_path):
 
             # region statistic
             variable_data_list = [
-                external_input,
                 observation,
                 pred_observations_sample,
                 decode_observations,
-                prefix_length,
-                model
+                prefix_length
             ]
+            losses = model.call_loss(external_input, observation)
+            loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
 
-            loss, ob_rrse, ob_rrse_single, ob_pear, prediction_rrse, prediction_rrse_single,\
+            if kl_loss != 0:
+                loss = vae_loss(kl_loss, likelihood_loss, 1000, kl_inc=args.train.kl_inc,
+                                kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
+
+            ob_rrse, ob_rrse_single, ob_pear, prediction_rrse, prediction_rrse_single,\
             prediction_pearsonr, prediction_rmse, prediction_rmse_single, time = Statistic(variable_data_list, split=False)
 
             ob_pearson_info = ' '.join(
@@ -228,22 +237,22 @@ def main_test(args, logging, ckpt_path):
             pred_rmse_info = ' '.join(['pred_{}_rmse={:.4f}'.format(name, rmse) for rmse, name in zip(
                 prediction_rmse_single, args.dataset.target_names)])
 
-            log_str = 'seq = {} loss = {:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ' ' + ob_pearson_info + \
+            log_str = 'seq = {} vll = {:.4f} mll={:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ' ' + ob_pearson_info + \
                       ' pred_rrse={:.4f} ' + pred_rrse_info + ' ' + pred_pearson_info + \
                       ' pred_rmse={:.4f} ' + pred_rmse_info + ' time={:.4f}'
-            logging(log_str.format(i, loss,
+            logging(log_str.format(i, loss, likelihood_loss,
                                    ob_rrse,
                                    prediction_rrse,
                                    prediction_rmse,
                                    time))
 
             acc_info += np.array([
-                loss, ob_rrse, *ob_rrse_single, *ob_pear,
+                loss, likelihood_loss, ob_rrse, *ob_rrse_single, *ob_pear,
                 prediction_rrse, *prediction_rrse_single, *prediction_pearsonr,
-                prediction_rmse, *prediction_rmse_single, time
-            ], dtype=np.float32)
+                prediction_rmse, *prediction_rmse_single, time, 1
+            ], dtype=np.float32) * external_input.size(1)
 
-            for i in range(external_input.size()[1]):
+            for i in range(external_input.size(1)):
                 yield tuple([x[:, i:i + 1, :] for x in [observation, decode_observations,
                                                         decode_observation_low, decode_observation_high,
                                                         pred_observation_low, pred_observation_high,
@@ -258,12 +267,10 @@ def main_test(args, logging, ckpt_path):
             # 计算单条数据的预测指标
             prefix_length = observation.size(0) - pred_observations_sample.size(0)
             variable_data_list = [
-                external_input,
                 observation,
                 pred_observations_sample,
                 decode_observations,
-                prefix_length,
-                model
+                prefix_length
             ]
             acc_info_single = Statistic(variable_data_list, split=True)
 
@@ -282,8 +289,9 @@ def main_test(args, logging, ckpt_path):
                 ##################图一:隐变量区间展示###########################
 
                 plt.subplot(221)
+                # 单条数据不显示loss
                 text_list = ['{}={:.4f}'.format(name, value) for name, value in
-                             zip(acc_name, acc_info_single)]
+                             zip(acc_name[1:], acc_info_single)]
                 for pos, text in zip(np.linspace(0, 1, len(text_list) + 1)[:-1], text_list):
                     plt.text(0.2, pos, text)
                 # plt.plot(observation, label='observation')
@@ -305,7 +313,6 @@ def main_test(args, logging, ckpt_path):
                 x_prefix = range(prefix_length)
                 x_suffix = range(prefix_length, observation.size()[0])
                 x_suffix_plus = range(prefix_length - 1, observation.size()[0])
-                x_limit_show = [0, 200]
                 if args.ct_time:
                     x_all = torch.cumsum(external_input[x_all, 0, -1], dim=0).cpu().numpy() / args.base_tp
                     x_prefix, x_suffix, x_suffix_plus = [x_all[x_inds] for x_inds in [x_prefix, x_suffix, x_suffix_plus]]
@@ -323,7 +330,9 @@ def main_test(args, logging, ckpt_path):
                 if args.ct_time:
                     plt.scatter(x_all, observation, s=1, c='black', zorder=3)
                 plt.legend()
-                plt.xlim(x_limit_show)
+                if args.dataset.type == 'nl':
+                    x_limit_show = [0, 200]
+                    plt.xlim(x_limit_show)
 
                 ##################图三:预测效果###########################
                 plt.subplot(223)
@@ -354,7 +363,10 @@ def main_test(args, logging, ckpt_path):
                     plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='black', zorder=3)
                 plt.ylabel(target_name)
                 plt.legend()
-                plt.xlim(x_limit_show)
+
+                if args.dataset.type == 'nl':
+                    x_limit_show = [0, 200]
+                    plt.xlim(x_limit_show)
 
                 ##################图四:weight map 热力图###########################
                 plt.subplot(224)
@@ -378,21 +390,21 @@ def main_test(args, logging, ckpt_path):
 
                 # plt_single
                 if args.test.plt_single:
-                    plt.figure(figsize=(10, 8))
+                    plt.figure(figsize=(7, 5))
 
                     plt.plot(x_prefix, observation[:prefix_length], label='history')
                     plt.plot(x_suffix_plus, observation[prefix_length - 1:], label='real', zorder=4)
-                    for n in range(int(pred_observations_sample_traj.shape[0])):
-                        if n == 0:
-                            plt.plot(x_suffix_plus,
-                                     np.concatenate([[float(observation[prefix_length - 1])],
-                                                     pred_observations_sample_traj[n]]),
-                                     label='prediction_sample', color='grey', linewidth=0.3, alpha=0.9, zorder=2)
-                        else:
-                            plt.plot(x_suffix_plus,
-                                     np.concatenate([[float(observation[prefix_length - 1])],
-                                                     pred_observations_sample_traj[n]]),
-                                     color='grey', linewidth=0.3, alpha=0.9, zorder=2)
+                    # for n in range(int(pred_observations_sample_traj.shape[0])):
+                    #     if n == 0:
+                    #         plt.plot(x_suffix_plus,
+                    #                  np.concatenate([[float(observation[prefix_length - 1])],
+                    #                                  pred_observations_sample_traj[n]]),
+                    #                  label='prediction_sample', color='grey', linewidth=0.3, alpha=0.9, zorder=2)
+                    #     else:
+                    #         plt.plot(x_suffix_plus,
+                    #                  np.concatenate([[float(observation[prefix_length - 1])],
+                    #                                  pred_observations_sample_traj[n]]),
+                    #                  color='grey', linewidth=0.3, alpha=0.9, zorder=2)
                     plt.plot(x_suffix_plus,
                              np.concatenate([[float(observation[prefix_length - 1])],
                                              pred_observations_sample.detach().squeeze().cpu().numpy()]),
@@ -402,31 +414,54 @@ def main_test(args, logging, ckpt_path):
                                      pred_observation_high.detach().squeeze().cpu().numpy(),
                                      facecolor='lightgreen', alpha=0.4, label='95%', zorder=1)
                     if args.ct_time:
-                        plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='r',
+                        plt.scatter(x_suffix, pred_observations_sample.detach().squeeze().cpu().numpy(), s=1, c='black',
                                     zorder=3)
                     plt.ylabel(target_name)
                     plt.legend()
 
+                    # plt.savefig(
+                    #     os.path.join(
+                    #         single_figs_path, str(i) + '_' + str(_) + '.eps'
+                    #     ), dpi=600
+                    # )
                     plt.savefig(
                         os.path.join(
                             single_figs_path, str(i) + '_' + str(_) + '.pdf'
                         ), dpi=600
                     )
+                    plt.savefig(
+                        os.path.join(
+                            single_figs_path, str(i) + '_' + str(_) + '.png'
+                        )
+                    )
                     plt.close()
 
+                    def to_list(x):
+                        if isinstance(x, list):
+                            return x
+                        try:
+                            return x.cpu().numpy().tolist()
+                        except Exception as e:
+                            pass
+                        return x.tolist()
+
+                    with open(os.path.join(single_figs_path, str(i) + '_' + str(_) + '.json'), 'w') as f:
+                        json.dump(
+                            {
+                                'x_prefix': to_list(x_prefix),
+                                'observation': to_list(observation),
+                                'prefix_length': prefix_length,
+                                'x_suffix_plus': to_list(x_suffix_plus),
+                                'pred_observations_sample': to_list(pred_observations_sample),
+                                'x_suffix': to_list(x_suffix),
+                                'pred_observation_low': to_list(pred_observation_low),
+                                'pred_observation_high': to_list(pred_observation_high),
+                                'target_name': target_name,
+                            }, f
+                        )
+
     logging(' '.join(
-        ['{}={:.4f}'.format(name, value / len(test_loader)) for name, value in zip(acc_name, acc_info)]
-    ))
-
-    def is_parameters_printed(parameter):
-        if 'estimate' in parameter[0]:
-            return True
-        return False
-
-    logging(list(
-        filter(
-            is_parameters_printed,
-            model.named_parameters())
+        ['{}={:.4f}'.format(name, value / acc_info[-1] if name != 'num' else 1) for name, value in zip(acc_name, acc_info)]
     ))
 
 

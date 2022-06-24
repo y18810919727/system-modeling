@@ -12,19 +12,19 @@ from model.common import MLP
 from model.ct_model.ct_common import vector_orth, vector_sta, vector_normal
 
 class ODEFunc(nn.Module):
-    def __init__(self, input_dim, ode_hidden_dim, ode_num_layers, ode_type='sta', device=torch.device("cpu")):
+    def __init__(self, ode_net, inputs=None, ode_type='sta'):
+        """
 
+        Args:
+            ode_net:
+            inputs:
+            ode_type:
         """
-        input_dim: dimensionality of the input
-        latent_dim: dimensionality used for ODE. Analog of a continous latent state
-        """
+
         super(ODEFunc, self).__init__()
+        self.inputs = inputs
 
-        self.input_dim = input_dim
-        self.device = device
-
-        self.gradient_net = MLP(input_dim, ode_hidden_dim, input_dim, num_mlp_layers=ode_num_layers)
-        common.init_network_weights(self.gradient_net)
+        self.gradient_net = ode_net
         # normal: mlp; sta: mlp(tanh) - ht; orth: mlp * sin
         if ode_type == 'normal':
             self.gradient_func = vector_normal
@@ -33,11 +33,9 @@ class ODEFunc(nn.Module):
         elif ode_type == 'orth':
             self.gradient_func = vector_orth
         else:
-            raise NotImplementedError(f'{ode_type}is not implemented')
+            raise NotImplementedError(f'{ode_type} is not implemented')
 
-
-
-    def forward(self, t_local, y, backwards = False):
+    def forward(self, t_local, y, backwards=False):
         """
         Perform one step in solving ODE. Given current data point y and current time point t_local, returns gradient dy/dt at this time point
 
@@ -50,7 +48,13 @@ class ODEFunc(nn.Module):
         return grad
 
     def get_ode_gradient_nn(self, t_local, y):
-        dy_dt = self.gradient_net(y)
+
+        if self.inputs is None:
+            dy_dt = self.gradient_net(y)
+        else:
+            dy_dt = self.gradient_net(
+                torch.cat([y, self.inputs], dim=-1)
+            )
         return self.gradient_func(y, dy_dt)
 
     def sample_next_point_from_prior(self, t_local, y):
@@ -59,3 +63,18 @@ class ODEFunc(nn.Module):
         y: value at the current time point
         """
         return self.get_ode_gradient_nn(t_local, y)
+
+
+# class ODEFunc_with_inputs(ODEFunc, nn.Module):
+#     def __init__(self, net, a):
+#         nn.Module.__init__(self)
+#         self.gradient_net = net
+#         self.gradient_func = vector_normal
+#         self.a = a
+#
+#     def get_ode_gradient_nn(self, t_local, y):
+#         dy_dt = self.gradient_net(
+#             torch.cat([y, self.a], dim=-1)
+#         )
+#         return self.gradient_func(y, dy_dt)
+

@@ -14,6 +14,7 @@ from pandas import DataFrame
 from omegaconf import DictConfig, OmegaConf
 from functools import reduce
 from operator import and_, or_
+import pandas
 
 
 def load_DictConfig(path, name):
@@ -140,6 +141,9 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
     if isinstance(key_words, str):
         key_words = [key_words]
 
+    if not isinstance(key_words[0], list):
+        key_words = [key_words]
+
     if isinstance(model, str):
         model = [model]
 
@@ -147,7 +151,9 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
     date_filter = lambda path: True if date is None else path.split('/')[-1] >= date
     model_filter = lambda path: True if model is None else (path.split('/')[2] in model or path.split('/')[3] in model)
     dataset_filter = lambda path: True if dataset is None else path.split('/')[1] == dataset
-    key_words_filter = lambda path: True if key_words is None else reduce(and_, [kw in path for kw in key_words])
+    key_words_filter = lambda path: True if key_words is None else reduce(
+        or_, [reduce(and_, [kw in path for kw in kws]) for kws in key_words]
+    )
 
     path_list = list(filter(lambda x: reduce(and_, [
         date_filter(x),
@@ -176,32 +182,38 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
             # pattern=re.compile(r'\/.*?/')
             result = path.split('/')
             # print(result)
-            dex.append(result[len(result) - 2] + '//' + result[len(result) - 1])
+            # dex.append(result[len(result) - 2] + '//' + result[len(result) - 1])
+            dex.append('//'.join(result[3:]))
         # print('dex', len(dex))
         n_dex = len(dex)  # 行数
         # print(dex)
         # assert len(dex) == len(temp_list)
 
-        # 单独开启第一个path文件获取列数以便于初始化数值矩阵
-        f = open('../' + temp_list[0] + '/test.out', 'r')
-        temp_data = f.readlines()
-        f.close()
+        # 单独开启一个path文件获取列数以便于初始化数值矩阵
+        for _, dir_path in enumerate(temp_list):
 
-        col2id = {}
-        for line in temp_data:
-            if re.search('likelihood', line):
-                # pattern = re.compile(r'-?[0-9]\d*\.\d*')   #查找数字(之查找包含小数点的)
-                t_col = re.findall(r'(\w*\(?\w\)?\w*)=(-?[0-9]\d*\.\d*)', line)
-                # print(t_col)
-                for i in range(len(t_col)):
-                    if t_col[i][0] == 'time':
-                        pass
-                    else:
-                        col.append(t_col[i][0])
-                        col2id[t_col[i][0]] = len(col) - 1
+            with open('../' + dir_path + '/test.out', 'r') as f:
+                temp_data = f.readlines()
+                if re.search('Error', ' '.join(temp_data[-5:])):
+                    continue
+
+            col2id = {}
+            for line in temp_data:
+                if re.search('Time_sec', line) and not re.search('seq', line):
+                    # pattern = re.compile(r'-?[0-9]\d*\.\d*')   #查找数字(之查找包含小数点的)
+                    t_col = re.findall(r'(\w*\(?\w\)?\w*)=(-?[0-9]\d*\.\d*)', line)
+                    # print(t_col)
+                    for i in range(len(t_col)):
+                        if t_col[i][0] == 'time':
+                            pass
+                        else:
+                            col.append(t_col[i][0])
+                            col2id[t_col[i][0]] = len(col) - 1
+            break
         # print('col', len(col))
+        col = col + ['seed']
         n_col = len(col)  # 列数
-        x = np.zeros((n_dex, n_col))  # 数值矩阵
+        x = np.zeros((n_dex, n_col))  # 数值矩阵 + random seed
         for t in range(len(temp_list)):  # 第t个临时列表中的路径
             try:
                 # print('t=',t)
@@ -210,7 +222,11 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
                 f.close()
                 # 数值矩阵生成
                 for line in temp_data:
-                    if re.search('likelihood', line):
+                    if line.startswith('random_seed'):
+                        rand_seed = re.findall(r'random_seed: (.*)', line)[0]
+                        x[t, -1] = None if str(rand_seed) == 'null' else int(rand_seed)
+
+                    if re.search('Time_sec', line) and not re.search('seq', line):
                         # print(line[11:len(line)])
                         # print(len(line))
                         pattern = re.compile(r'-?[0-9]\d*\.\d*')  # 查找数字(之查找包含小数点的)
@@ -241,7 +257,9 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
 
 if __name__ == '__main__':
     # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model='oderssm_ode')
-    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model=['oderssm_base'], sort_key='likelihood', key_words=None)
+    # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model=['ode_rssm_schedule'], sort_key='likelihood', key_words='iw_trajs')
+    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='vll', key_words=['sp=0.25','even=False'], dataset='winding', date='2022-05-01_09-00-00')
     print('\n'.join(path_list))
-    # for df in dfs:
-    #     print(pa)
+    pandas.set_option('display.width', 1000)
+    for df in dfs:
+        print(df)

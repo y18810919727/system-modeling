@@ -10,46 +10,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from collections import defaultdict
 from common import subsample_indexes
-
-
-class FakeDataset(Dataset):
-
-    def __init__(self, df):
-        """
-        round,t,mass,pressure,v_in,c_in,v_out,c_out
-        :param df:
-        """
-        self.names = list(df.columns)[3:]
-        data = np.array(df)
-        self.group = defaultdict(list)
-        self.data = {}
-        for x in data:
-            self.group[int(x[1])].append(x[3:])
-        for key in self.group.keys():
-            self.data[key] = np.array(self.group[key], dtype=np.float32)
-        del self.group
-
-    def __getitem__(self, item):
-        c_in = self.data[item][:, self.names.index('c_in')]
-        v_in = self.data[item][:, self.names.index('v_in')]
-        c_out = self.data[item][:, self.names.index('c_out')]
-        v_out = self.data[item][:, self.names.index('v_out')]
-        pressure = self.data[item][:, self.names.index('pressure')]
-        mass = self.data[item][:, self.names.index('mass')]
-        external_input = np.stack(
-            [
-                c_in * c_in * c_in * v_in - c_out * c_out * c_out * v_out,
-                c_in * c_in * v_in - c_out * c_out * v_out,
-                c_in * v_in - c_out * v_out
-            ],
-            axis=1)
-        observation = pressure
-        state = mass
-
-        return external_input, np.expand_dims(observation, axis=1)
-
-    def __len__(self):
-        return len(self.data)
+from common import onceexp
 
 
 class WesternDataset(Dataset):
@@ -135,7 +96,6 @@ class WesternDataset(Dataset):
             ],
             axis=1)
         observation = pressure
-
         return external_input, np.expand_dims(observation, axis=1)
 
 
@@ -386,6 +346,90 @@ class WesternConcentrationDataset(Dataset):
         data_out = choose_and_dilation(data_df, self.length, self.dilation, ['11', '17'])
 
         # return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+        return data_in, data_out
+
+
+class SoutheastThickener(Dataset):
+    def __init__(self, data, length=90, step=5, dilation=1, dataset_type=None, ratio=None, io=None, seed=0,
+                 smooth_alpha=0.3):
+        """
+
+        Args:
+            data: data array
+            length: history + predicted
+            step:  size of moving step
+            dilation:
+            dataset_type:  train, val, test
+            ratio:  default: 0.6, 0.2, 0.2
+            io: default 4-1
+            seed: default 0
+        """
+
+        # TODO: 支持序列长度非90
+        assert length == 90
+        if not isinstance(seed, int):
+            seed = 0
+
+        if dataset_type is None:
+            dataset_type = 'train'
+
+        if ratio is None:
+            ratio = [0.6, 0.2, 0.2]
+
+        if io is None:
+            io = '4-1'
+
+        if io == '4-1':
+            # 进料浓度、出料浓度、进料流量、出料流量 -> 泥层压力
+            self.io = [[0, 1, 2, 3], [4]]
+        elif io == '3-2':
+            # 进料浓度、进料流量、出料流量 -> 出料浓度 、泥层压力
+            self.io = [[0, 2, 3], [1, 4]]
+        else:
+            raise NotImplementedError()
+
+        data = np.array(data, dtype=np.float32)
+        self.smooth_alpha = smooth_alpha
+
+        for _ in self.io[1]:
+            # data.shape (N, 90, 5)
+            data[:, :, int(_)] = onceexp(data[:, :, int(_)].transpose(), self.smooth_alpha).transpose()
+
+        data, self.mean, self.std = self.normalize(data)
+
+        data = data[::step]
+        L = data.shape[0]
+
+        train_size, val_size = int(L*ratio[0]), int(L*ratio[1])
+        test_size = L - train_size - val_size
+
+        d1, d2, d3 = torch.utils.data.random_split(data, (train_size, val_size, test_size),
+                                                   generator=torch.Generator().manual_seed(seed))
+        if dataset_type == 'train':
+            self.reserved_dataset = d1
+        elif dataset_type == 'val':
+            self.reserved_dataset = d2
+        elif dataset_type == 'test':
+            self.reserved_dataset = d3
+        else:
+            raise AttributeError()
+
+        self.dilation = dilation
+        self.step = step
+
+    def normalize(self, data):
+        mean = np.mean(data, axis=(0, 1))
+        std = np.std(data, axis=(0, 1))
+        return (data - mean) / std, mean, std
+
+    def __len__(self):
+        return len(self.reserved_dataset)
+
+    def __getitem__(self, item):
+        data_tuple = self.reserved_dataset.__getitem__(item)
+        # data_tuple = self.reserved_data[item * self.step]
+        data_in, data_out = [data_tuple[:, self.io[_]] for _ in range(2)]
+
         return data_in, data_out
 
 

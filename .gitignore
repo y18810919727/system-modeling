@@ -139,3 +139,5 @@ scripts/*
 !/control/model/cstr_vrnn_5_cpu.pkl
 /test/
 jupyter/*
+/data/south_con/class2_63382.npy
+/data/south_con/class1_78581.npy
