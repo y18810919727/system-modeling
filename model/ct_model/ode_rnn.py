@@ -120,41 +120,58 @@ class ODE_RNN(nn.Module):
         hn = torch.zeros((batch_size, 2*self.hidden_size), device=external_input_seq.device) if memory_state is None else memory_state['hn']
 
         predicted_seq_sample = []
+        state_mu = []
+        state_logsigma = []
 
-        with torch.no_grad():
-            hn = hn.repeat(n_traj, 1)
-            for t in range(l):
+        hn = hn.repeat(n_traj, 1)
+        for t in range(l):
 
-                # decoder: h_t -> x_t+1
-                # x_t = self.Ly(hn)
-                x_t_mean, x_t_logsigma = self.Ly_gauss(hn)
+            # decoder: h_t -> x_t+1
+            # x_t = self.Ly(hn)
+            x_t_mean, x_t_logsigma = self.Ly_gauss(hn)
 
-                x_t = normal_differential_sample(
-                    MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
-                )
-                # rnn网络更新h_t: u_t+1, x_t+1, h_t ->h_t+1
-                # output, _ = self.rnn_encoder(
-                #     torch.cat([external_input_seq_embed[t], self.process_x(x_t)], dim=-1),
-                #     hn)
-                # hn = output[0]
+            x_t = normal_differential_sample(
+                MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
+            )
+            # rnn网络更新h_t: u_t+1, x_t+1, h_t ->h_t+1
+            # output, _ = self.rnn_encoder(
+            #     torch.cat([external_input_seq_embed[t], self.process_x(x_t)], dim=-1),
+            #     hn)
+            # hn = output[0]
 
-                hn = self.rnn_cell(
-                    torch.cat([external_input_seq_embed[t], self.process_x(x_t)], dim=-1),
-                    hn
-                )
-                h, c = hn[..., :self.hidden_size], hn[..., -self.hidden_size:]
-                h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[t, :, 0]), dt[t, :, 0]]))[-1]
-                hn = torch.cat([h, c], dim=-1)
+            hn = self.rnn_cell(
+                torch.cat([external_input_seq_embed[t], self.process_x(x_t)], dim=-1),
+                hn
+            )
+            h, c = hn[..., :self.hidden_size], hn[..., -self.hidden_size:]
+            h = self.diffeq_solver(h, torch.stack([torch.zeros_like(dt[t, :, 0]), dt[t, :, 0]]))[-1]
+            hn = torch.cat([h, c], dim=-1)
 
-                observation = split_first_dim(x_t, (n_traj, batch_size))
-                observation = observation.permute(1, 0, 2)
-                predicted_seq_sample.append(observation)
+            observation = split_first_dim(x_t, (n_traj, batch_size))
+            observation = observation.permute(1, 0, 2)
+            predicted_seq_sample.append(observation)
+            state_mu.append(torch.mean(split_first_dim(x_t_mean, (n_traj, batch_size)), dim=0))
+            state_logsigma.append(torch.mean(split_first_dim(x_t_logsigma, (n_traj, batch_size)), dim=0))
 
+        state_mu = torch.stack(state_mu, dim=0)
+        state_logsigma = torch.stack(state_logsigma, dim=0)
         predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
         predicted_seq = torch.mean(predicted_seq_sample, dim=2)
-        predicted_dist = MultivariateNormal(
-            predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
-        )
+        states = {
+            'state_mu': state_mu,
+            'state_logsigma': state_logsigma,
+        }
+
+        predicted_dist = self.decode_observation(states, mode='dist')
+
+        # if n_traj == 1:
+        #     predicted_dist = MultivariateNormal(
+        #         predicted_seq, torch.diag_embed(torch.zeros_like(predicted_seq))
+        #     )
+        # else:
+        #     predicted_dist = MultivariateNormal(
+        #         predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
+        #     )
 
         outputs = {
             'predicted_seq_sample': predicted_seq_sample,
@@ -172,24 +189,23 @@ class ODE_RNN(nn.Module):
         historical_ob = observations_seq[:train_pred_len]
         future_input = external_input_seq[train_pred_len:]
         future_ob = observations_seq[train_pred_len:]
-        all_ob = observations_seq
 
         outputs, memory_state = self.forward_posterior(historical_input, historical_ob, memory_state)
-        observations_normal_dist = self.decode_observation(outputs, mode='dist')
-        generative_likelihood = torch.sum(observations_normal_dist.log_prob(historical_ob))
-        # TODO:KL_loss加不加?
+        generative_normal_dist = self.decode_observation(outputs, mode='dist')
+        generative_likelihood = torch.sum(generative_normal_dist.log_prob(historical_ob))
 
-        # reconstructing_x_seq = outputs['predicted_seq']
-        #
-        # outputs, memory_state = self.forward_prediction(future_input, memory_state=memory_state)
-        # predicted_x_seq = outputs['predicted_seq']
-        # all_predicted_seq = torch.cat([reconstructing_x_seq, predicted_x_seq], dim=0)
+        # TODO:添加了call_loss部分的pred_likehood后，此处的pred_likelihood和model_train中的test_net中的pred_likelihood会特别大，未排查到原因
+        outputs, memory_state = self.forward_prediction(future_input, memory_state=memory_state)
+        pred_normal_dist = outputs['predicted_dist']
+        pred_likelihood = torch.sum(pred_normal_dist.log_prob(future_ob))
+
+        all_likelihood = generative_likelihood + pred_likelihood
 
 
         return {
-            'loss': -generative_likelihood/batch_size/l,  # TODO:改成观测数据的似然，类似于odeRssm的likehoodloss
+            'loss': -all_likelihood/batch_size/l,
             'kl_loss': 0,
-            'likelihood_loss': -generative_likelihood/batch_size/l
+            'likelihood_loss': -all_likelihood/batch_size/l
         }
 
     def decode_observation(self, outputs, mode='sample'):

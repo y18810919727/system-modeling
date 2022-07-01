@@ -88,7 +88,7 @@ def test_net(model, data_loader, epoch, args):
         acc_time += tr['val']
 
         acc_loss += float(loss) * external_input.shape[1]
-        # TODO:预测的likelihood
+        # 预测的likelihood
         pred_likelihood = - float(torch.sum(outputs['predicted_dist'].log_prob(observation[prefix_length:]))) / batch_size / (l - prefix_length)
         acc_pred_likelihood += pred_likelihood * external_input.shape[1]
         acc_items += external_input.shape[1]
@@ -100,11 +100,6 @@ def test_net(model, data_loader, epoch, args):
         acc_rmse += float(common.RMSE(
             observation[prefix_length:], outputs['predicted_seq'])
         ) * external_input.shape[1]
-
-        # multi_observation = observation[prefix_length:].permute(1, 0, 2).repeat(args.test.n_traj, 1, 1)
-        # multi_observation = split_first_dim(
-        #     multi_observation, (args.test.n_traj, external_input.shape[1])
-        # ).permute(2, 1, 0, 3)
 
         acc_multisample_rmse += mean([float(common.RMSE(
             observation[prefix_length:], outputs['predicted_seq_sample'][:, :, i, :])) for i in range(outputs['predicted_seq_sample'].shape[2])]
