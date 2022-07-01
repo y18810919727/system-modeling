@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 import logging
 from torch import nn
+from numpy import *
 from sklearn.metrics import mean_squared_error
 
 
@@ -139,7 +140,7 @@ def Statistic(variable_data, split=False):
 
     """
     begin_time = time.time()
-    observation, pred_observations_sample, decode_observations, prefix_length = variable_data
+    observation, pred_observations_dist, pred_observations_sample, pred_observations_sample_traj, decode_observations, prefix_length = variable_data
 
     # 每条数据单独算loss太慢了
 
@@ -164,7 +165,9 @@ def Statistic(variable_data, split=False):
         observation[:, :, _], decode_observations[:, :, _]
     )) for _ in range(observation.shape[-1])]
 
-    # 统计参数5（未实现）: 真实序列在预测分布上的似然
+    # 统计参数5: 真实序列在预测分布上的似然
+    pred_likelihood = torch.sum(pred_observations_dist.log_prob(observation[prefix_length:]))
+    pred_likelihood = - pred_likelihood / observation[prefix_length:].size()[0] / observation[prefix_length:].size()[1]
 
     # 统计参数6：预测的rmse
     prediction_rmse = RMSE(observation[prefix_length:], pred_observations_sample)
@@ -172,14 +175,25 @@ def Statistic(variable_data, split=False):
         observation[prefix_length:, :, _], pred_observations_sample[:, :, _]
     )) for _ in range(observation.shape[-1])]
 
+    # 统计参数7：预测的multisample_rmse
+    pred_multisample_rmse = mean([float(RMSE(
+        observation[prefix_length:], pred_observations_sample_traj[:, :, i, :])) for i in range(pred_observations_sample_traj.shape[2])]
+    )
+
+    pred_multisample_rmse_single = [mean([float(RMSE(
+        observation[prefix_length:, :, _], pred_observations_sample_traj[:, :, i, _])) for i in range(pred_observations_sample_traj.shape[2])]
+    ) for _ in range(observation.shape[-1])]
+
     end_time = time.time()
 
     if split:
-        return np.array([float(ob_rrse), *ob_rrse_single, *ob_pear,
-                float(prediction_rrse), *prediction_rrse_single, *prediction_pearsonr, float(prediction_rmse), *prediction_rmse_single, end_time - begin_time], dtype=np.float32)
+        return np.array([float(ob_rrse), *ob_rrse_single, *ob_pear, float(prediction_rrse), *prediction_rrse_single,
+                         *prediction_pearsonr, float(pred_likelihood), float(prediction_rmse), *prediction_rmse_single,
+                         float(pred_multisample_rmse), *pred_multisample_rmse_single, end_time - begin_time], dtype=np.float32)
     else:
-        return [float(ob_rrse), ob_rrse_single, ob_pear,
-                float(prediction_rrse), prediction_rrse_single, prediction_pearsonr, float(prediction_rmse), prediction_rmse_single, end_time - begin_time]
+        return [float(ob_rrse), ob_rrse_single, ob_pear, float(prediction_rrse), prediction_rrse_single,
+                prediction_pearsonr, float(pred_likelihood), float(prediction_rmse), prediction_rmse_single,
+                float(pred_multisample_rmse), pred_multisample_rmse_single, end_time - begin_time]
 
     # return [float(ob_rrse), ob_rrse_single, ob_pear,
     #         float(prediction_rrse), prediction_rrse_single, prediction_pearsonr, float(prediction_rmse), prediction_rmse_single, end_time - begin_time]

@@ -18,6 +18,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from common import normal_interval, Statistic, vae_loss
 from southeast_ore_dataset import SoutheastOreDataset
+from model.common import DiagMultivariateNormal as MultivariateNormal
 
 
 def set_random_seed(seed):
@@ -161,8 +162,11 @@ def main_test(args, logging, ckpt_path):
                ['pred_rrse'] + \
                ['pred_{}_rrse'.format(name) for name in args.dataset.target_names] + \
                ['pred_{}_pear'.format(name) for name in args.dataset.target_names] + \
+               ['pred_likelihood'] + \
                ['pred_rmse'] + \
                ['pred_{}_rmse'.format(name) for name in args.dataset.target_names] + \
+               ['pred_multisample_rmse'] + \
+               ['pred_{}_multisample_rmse'.format(name) for name in args.dataset.target_names] + \
                ['time', 'num']
     acc_info = np.zeros(len(acc_name))
 
@@ -210,7 +214,9 @@ def main_test(args, logging, ckpt_path):
             # region statistic
             variable_data_list = [
                 observation,
+                pred_observations_dist,
                 pred_observations_sample,
+                pred_observations_sample_traj,
                 decode_observations,
                 prefix_length
             ]
@@ -221,8 +227,10 @@ def main_test(args, logging, ckpt_path):
                 loss = vae_loss(kl_loss, likelihood_loss, 1000, kl_inc=args.train.kl_inc,
                                 kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
 
+            # TODO:指标要加在这里
             ob_rrse, ob_rrse_single, ob_pear, prediction_rrse, prediction_rrse_single,\
-            prediction_pearsonr, prediction_rmse, prediction_rmse_single, time = Statistic(variable_data_list, split=False)
+            prediction_pearsonr, pred_likelihood, prediction_rmse, prediction_rmse_single, \
+            pred_multisample_rmse, pred_multisample_rmse_single, time = Statistic(variable_data_list, split=False)
 
             ob_pearson_info = ' '.join(
                 ['ob_{}_pear={:.4f}'.format(name, pear) for pear, name in zip(ob_pear, args.dataset.target_names)])
@@ -236,20 +244,30 @@ def main_test(args, logging, ckpt_path):
                 prediction_rrse_single, args.dataset.target_names)])
             pred_rmse_info = ' '.join(['pred_{}_rmse={:.4f}'.format(name, rmse) for rmse, name in zip(
                 prediction_rmse_single, args.dataset.target_names)])
+            # pred_likelihood_info = ' '.join(['pred_{}_likelihood={:.4f}'.format(name, likelihood) for likelihood, name in zip(
+            #     pred_likelihood, args.dataset.target_names)])
+            pred_multisample_rmse_info = ' '.join(['pred_{}_multisample_rmse={:.4f}'.format(name, multisample_rmse) for multisample_rmse, name in zip(
+                pred_multisample_rmse_single, args.dataset.target_names)])
 
             log_str = 'seq = {} vll = {:.4f} mll={:.4f} ob_rrse={:.4f} ' + ob_rrse_info + ' ' + ob_pearson_info + \
                       ' pred_rrse={:.4f} ' + pred_rrse_info + ' ' + pred_pearson_info + \
-                      ' pred_rmse={:.4f} ' + pred_rmse_info + ' time={:.4f}'
+                      ' pred_likelihood={:.4f} ' + \
+                      ' pred_rmse={:.4f} ' + pred_rmse_info + \
+                      ' pred_multisample_rmse={:.4f} ' + pred_multisample_rmse_info + 'time={:.4f}'
             logging(log_str.format(i, loss, likelihood_loss,
                                    ob_rrse,
                                    prediction_rrse,
+                                   pred_likelihood,
                                    prediction_rmse,
+                                   pred_multisample_rmse,
                                    time))
 
             acc_info += np.array([
                 loss, likelihood_loss, ob_rrse, *ob_rrse_single, *ob_pear,
                 prediction_rrse, *prediction_rrse_single, *prediction_pearsonr,
-                prediction_rmse, *prediction_rmse_single, time, 1
+                pred_likelihood,
+                prediction_rmse, *prediction_rmse_single,
+                pred_multisample_rmse, *pred_multisample_rmse_single, time, 1
             ], dtype=np.float32) * external_input.size(1)
 
             for i in range(external_input.size(1)):
@@ -264,11 +282,17 @@ def main_test(args, logging, ckpt_path):
             observation, decode_observations, decode_observation_low, decode_observation_high, \
             pred_observation_low, pred_observation_high, pred_observations_sample, pred_observations_sample_traj, external_input = [x for x in
                                                                                      result[:-1]]
+            # DiagMultivariateNormal类型的pred_observations_dist无法通过[x]转递
+            pred_observations_dist = MultivariateNormal(
+                pred_observations_sample_traj.mean(dim=2), torch.diag_embed(pred_observations_sample_traj.var(dim=2))
+            )
             # 计算单条数据的预测指标
             prefix_length = observation.size(0) - pred_observations_sample.size(0)
             variable_data_list = [
                 observation,
+                pred_observations_dist,
                 pred_observations_sample,
+                pred_observations_sample_traj,
                 decode_observations,
                 prefix_length
             ]

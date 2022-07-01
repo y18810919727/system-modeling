@@ -23,10 +23,10 @@ from omegaconf import DictConfig, OmegaConf
 import traceback
 from scipy.stats import pearsonr
 import common
-from common import detect_download, init_network_weights, vae_loss
+from common import detect_download, init_network_weights, vae_loss, split_first_dim
 from lib.util import TimeRecorder
 from model.common import PeriodSchedule, ValStepSchedule
-
+from numpy import *
 
 
 
@@ -47,6 +47,9 @@ def test_net(model, data_loader, epoch, args):
     acc_rrse = 0
     acc_rmse = 0
     acc_time = 0
+    acc_pred_likelihood = 0
+    acc_multisample_rmse = 0
+
     model.eval()
     use_cuda = args.use_cuda and torch.cuda.is_available()
 
@@ -60,6 +63,8 @@ def test_net(model, data_loader, epoch, args):
         if use_cuda:
             external_input = external_input.cuda()
             observation = observation.cuda()
+
+        l, batch_size, _ = external_input.size()
 
         with tr('val'):
         # Update: 20210618 ，删掉训练阶段在model_train中调用forward_posterior的过程,直接调用call_loss(external_input, observation)
@@ -83,6 +88,9 @@ def test_net(model, data_loader, epoch, args):
         acc_time += tr['val']
 
         acc_loss += float(loss) * external_input.shape[1]
+        # TODO:预测的likelihood
+        pred_likelihood = - float(torch.sum(outputs['predicted_dist'].log_prob(observation[prefix_length:]))) / batch_size / (l - prefix_length)
+        acc_pred_likelihood += pred_likelihood * external_input.shape[1]
         acc_items += external_input.shape[1]
 
         acc_rrse += float(common.RRSE(
@@ -93,8 +101,18 @@ def test_net(model, data_loader, epoch, args):
             observation[prefix_length:], outputs['predicted_seq'])
         ) * external_input.shape[1]
 
+        # multi_observation = observation[prefix_length:].permute(1, 0, 2).repeat(args.test.n_traj, 1, 1)
+        # multi_observation = split_first_dim(
+        #     multi_observation, (args.test.n_traj, external_input.shape[1])
+        # ).permute(2, 1, 0, 3)
+
+        acc_multisample_rmse += mean([float(common.RMSE(
+            observation[prefix_length:], outputs['predicted_seq_sample'][:, :, i, :])) for i in range(outputs['predicted_seq_sample'].shape[2])]
+        ) * external_input.shape[1]
+
     model.train()
-    return acc_loss / acc_items, acc_rrse / acc_items, acc_rmse/acc_items, acc_time / acc_items
+    return acc_loss / acc_items, acc_rrse / acc_items, acc_rmse/acc_items, acc_time / acc_items, \
+           acc_pred_likelihood / acc_items, acc_multisample_rmse / acc_items
 
 
 def main_train(args, logging):
@@ -312,7 +330,8 @@ def main_train(args, logging):
     val_loader = DataLoader(val_dataset, batch_size=args.train.batch_size, shuffle=False,
                             num_workers=args.train.num_workers, collate_fn=collate_fn)
     # best_rrse = 1e12
-    best_rmse = 1e12
+    # best_rmse = 1e12
+    best_val = 1e12
 
     logging('make train loader successfully. Length of loader: %i' % len(train_loader))
 
@@ -369,15 +388,16 @@ def main_train(args, logging):
         ))
         if (epoch + 1) % args.train.eval_epochs == 0:
             with torch.no_grad():
-                val_loss, val_rrse, val_rmse, val_time = test_net(model, val_loader, epoch, args)
-            logging('eval epoch = {} with loss = {:.6f} rmse = {:.4f} rrse = {:.4f} val_time = {:.4f} learning_rate = {:.6f}'.format(
-                epoch, val_loss, val_rmse, val_rrse, val_time, lr)
+                val_loss, val_rrse, val_rmse, val_time, val_pred_likelihood, val_multisample_rmse = test_net(model, val_loader, epoch, args)
+            logging('eval epoch = {} with loss = {:.6f} rmse = {:.4f} rrse = {:.4f} val_time = {:.4f} val_pred_likelihood = {:.4f} val_multisample_rmse = {:.4f} learning_rate = {:.6f}'.format(
+                epoch, val_loss, val_rmse, val_rrse, val_time, val_pred_likelihood, val_multisample_rmse, lr)
             )
             all_val_rmse.append(val_rmse)
             scheduler.step(all_val_rmse, val_rmse)
-
-            if best_rmse > val_rmse:
-                best_rmse = val_rmse
+            # TODO:目前评价标准为rmse，需要同时考虑rmse\likelihood\multisample_rmse? 如何比较好的同时以三者为评价标准？ # 用likehood好一些，越大越好
+            epoch_val = val_pred_likelihood
+            if best_val > epoch_val:
+                best_val = epoch_val
                 best_dev_epoch = epoch
                 ckpt = dict()
                 ckpt['model'] = model.state_dict()
