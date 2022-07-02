@@ -9,14 +9,16 @@ import torch
 from torch import nn
 from einops import rearrange,repeat
 
+from model.common import DBlock
 from model.common import DiagMultivariateNormal as MultivariateNormal
-from common import logsigma2cov
+from common import logsigma2cov, split_first_dim
+from model.func import normal_differential_sample
 import torch.nn.functional as F
 
 
 class TimeAwareRNN(nn.Module):
 
-    def __init__(self, k_in, k_out, k_state, dropout=0., interpol="constant", **kwargs):
+    def  __init__(self, k_in, k_out, k_state, dropout=0., interpol="constant", **kwargs):
         # potential kwargs: meandt, train_scheme, eval_scheme
 
         super().__init__()
@@ -41,7 +43,8 @@ class TimeAwareRNN(nn.Module):
         state = self.state0.unsqueeze(0).expand(inputs.size(0), -1) if state0 is None else state0
         outputs = []
         states = []
-
+        states_mu = []           # state_mu == y_mu
+        states_logsigma = []     # states_logsigma == y_logsigma
         # interpolation of inputs for higher order models (quick and dirty rather than very general)
         if self.interpol == "constant":
             inputs_half = inputs
@@ -64,26 +67,32 @@ class TimeAwareRNN(nn.Module):
             x_half = cell.expand_input(inputs_half[:, i, :])
             x_full = cell.expand_input(inputs_full[:, i, :])
             dt_i = None if dt is None else dt[:, i, :]
-            output, state = cell(x0, state, dt=dt_i, x_half=x_half, x_full=x_full)  # output (batch, 2)
+            output, state, state_mu, state_logsigma = cell(x0, state, dt=dt_i, x_half=x_half, x_full=x_full)  # output (batch, 2)
             outputs.append(output)
             states.append(state)
+            states_mu.append(state_mu)
+            states_logsigma.append(state_logsigma)
 
         outputs = torch.stack(outputs, dim=1)  # outputs: (batch, seq_len, 2)
         states = torch.stack(states, dim=1)
+        states_mu = torch.stack(states_mu, dim=1)
+        states_logsigma = torch.stack(states_logsigma, dim=1)
 
-        return outputs, states
+        return outputs, states, states_mu, states_logsigma
 
     def forward_prediction(self, external_input_seq, n_traj=16, max_prob=False, memory_state=None):
 
         l, batch_size, _ = external_input_seq.size()
-        predicted_seq, states, memory_state= self.forward_sequence(
+        predicted_seq_sample, predicted_seq, states, memory_state, state_mu, state_logsigma = self.forward_sequence(
             self.pred_cell, external_input_seq, memory_state
         )
 
-        predicted_seq_sample = repeat(predicted_seq, 'l b c -> l b n c', n=n_traj)
-        predicted_dist = MultivariateNormal(
-            predicted_seq, torch.diag_embed(torch.zeros_like(predicted_seq))
-        )
+        pred_outputs = {
+            'state_mu': state_mu,
+            'state_logsigma': state_logsigma,
+        }
+        predicted_dist = self.decode_observation(pred_outputs, mode='dist')
+
         outputs = {
             'predicted_seq_sample': predicted_seq_sample,
             'predicted_dist': predicted_dist,
@@ -106,47 +115,63 @@ class TimeAwareRNN(nn.Module):
 
         l, batch_size, _ = external_input_seq.size()
 
-        predicted_seq, states, memory_state = self.forward_sequence(
+        predicted_seq_sample, predicted_seq, states, memory_state, state_mu, state_logsigma = self.forward_sequence(
             self.en_cell, torch.cat([observations_seq, external_input_seq], dim=-1),  memory_state
         )
 
         outputs = {
+            'state_mu': state_mu,
+            'state_logsigma': state_logsigma,
             'state': states,
             'predicted_seq': predicted_seq,
         }
+
+        # outputs = {
+        #     'state_mu': states_mu,
+        #     'predicted_seq': predicted_seq
+        # }
+
         return outputs, memory_state
 
     def call_loss(self, external_input_seq, observations_seq, memory_state=None):
 
+        l, batch_size, _ = observations_seq.shape
         en_length = external_input_seq.size(0)//2
 
         historical_input = external_input_seq[:-en_length]
         historical_ob = observations_seq[:-en_length]
         future_input = external_input_seq[-en_length:]
+        future_ob = observations_seq[-en_length:]
 
         en_outputs, memory_state = self.forward_posterior(historical_input, historical_ob, memory_state)
-        pred_outputs, memory_state = self.forward_prediction(future_input, n_traj=1, memory_state=memory_state)
+        generative_normal_dist = self.decode_observation(en_outputs, mode='dist')
+        generative_likelihood = torch.sum(generative_normal_dist.log_prob(historical_ob))
 
-        en_seq_plus_pred_seq = torch.cat([en_outputs['predicted_seq'], pred_outputs['predicted_seq']], dim=0)
+        pred_outputs, memory_state = self.forward_prediction(future_input, n_traj=1, memory_state=memory_state)
+        pred_normal_dist = pred_outputs['predicted_dist']
+        pred_likelihood = torch.sum(pred_normal_dist.log_prob(future_ob))
+
+        # en_seq_plus_pred_seq = torch.cat([en_outputs['predicted_seq'], pred_outputs['predicted_seq']], dim=0)
+        all_likelihood = generative_likelihood + pred_likelihood
 
         return {
-            'loss': F.mse_loss(en_seq_plus_pred_seq, observations_seq),
+            'loss': -all_likelihood/batch_size/l,
             'kl_loss': 0,
-            'likelihood_loss': 0
+            'likelihood_loss': -all_likelihood/batch_size/l
         }
 
-    def forward_sequence(self, cell, seq, memory_state):
-
+    def forward_sequence(self, cell, seq, memory_state, n_traj=1):
+        l, batch_size, _ = seq.size()
+        seq = seq.repeat(1, n_traj, 1)
         seq, dt = seq[..., :-1], seq[..., -1:]
-        batch_size = seq.size(1)
-        state = self.state0.repeat(batch_size, 1) if memory_state is None else memory_state['state']
+        state = self.state0.repeat(batch_size, 1).repeat(n_traj, 1) if memory_state is None else memory_state['state']
         last_dt = 0 if memory_state is None else memory_state['last_dt']
 
         ori_dt = dt
         dt = torch.cat([torch.zeros_like(dt[0:1]), dt[:-1]], dim=0)
         dt[0] = last_dt
 
-        outputs, states = self.forward_ori(
+        outputs, states, states_mu, states_logsigma = self.forward_ori(
             cell,
             inputs=rearrange(seq, 'l b c -> b l c'),
             state0=state,
@@ -158,9 +183,15 @@ class TimeAwareRNN(nn.Module):
             'last_dt': ori_dt[-1]
         }
 
+        y_new_mean, y_new_logsigma = cell.Ly_gauss(state)
+
+        y_new = normal_differential_sample(
+            MultivariateNormal(y_new_mean, logsigma2cov(y_new_logsigma))
+        )
+
         outputs = torch.cat(
             [
-                cell.Ly(state).unsqueeze(dim=1),
+                y_new.unsqueeze(dim=1),
                 outputs[:, :-1, :]
             ],
             dim=1
@@ -172,10 +203,33 @@ class TimeAwareRNN(nn.Module):
             ],
             dim=1
         )
-        predicted_seq, states = [rearrange(x, 'b l c -> l b c') for x in [outputs, states]]
 
-        return predicted_seq, states, new_memory_state
+        states_mu = torch.cat(
+            [
+                y_new_mean.unsqueeze(dim=1),
+                states_mu[:, :-1, :]
+            ],
+            dim=1
+        )
 
+        states_logsigma = torch.cat(
+            [
+                y_new_logsigma.unsqueeze(dim=1),
+                states_logsigma[:, :-1, :]
+            ],
+            dim=1
+        )
+
+        states_mu = torch.mean(split_first_dim(states_mu, (n_traj, batch_size)), dim=0)
+        states_logsigma = torch.mean(split_first_dim(states_logsigma, (n_traj, batch_size)), dim=0)
+        states = torch.mean(split_first_dim(states, (n_traj, batch_size)), dim=0)
+        predicted_seq = torch.mean(split_first_dim(outputs, (n_traj, batch_size)), dim=0)
+        predicted_seq_sample = split_first_dim(outputs, (n_traj, batch_size))
+
+        predicted_seq, states, states_mu, states_logsigma = [rearrange(x, 'b l c -> l b c') for x in [predicted_seq, states, states_mu, states_logsigma]]
+        predicted_seq_sample = rearrange(predicted_seq_sample, 'n b l c -> l b n c')
+
+        return predicted_seq_sample, predicted_seq, states, new_memory_state, states_mu, states_logsigma
 
     def decode_observation(self, outputs, mode='sample'):
         """
@@ -187,15 +241,15 @@ class TimeAwareRNN(nn.Module):
         Returns:
 
         """
-        mean = outputs['predicted_seq']
-        cov = torch.diag_embed(torch.zeros_like(mean))
+        mean = outputs['state_mu']
+        logsigma = outputs['state_logsigma']
         observations_normal_dist = MultivariateNormal(
-            mean, cov
+            mean, logsigma2cov(logsigma)
         )
         if mode == 'dist':
             return observations_normal_dist
         elif mode == 'sample':
-            return mean
+            return observations_normal_dist.sample()
 
 
 class HOGRUCell(nn.Module):
@@ -218,11 +272,13 @@ class HOGRUCell(nn.Module):
         self.Lh_gate = nn.Linear(k_state, 2 * k_state, bias=True)
         self.Lh_lin = nn.Linear(k_state, k_state, bias=True)
 
-        self.Ly = nn.Sequential(
-            nn.Linear(k_state, k_state, bias=False),
-            nn.Tanh(),
-            nn.Linear(k_state, k_out, bias=False)
-        )
+        # self.Ly = nn.Sequential(
+        #     nn.Linear(k_state, k_state, bias=False),
+        #     nn.Tanh(),
+        #     nn.Linear(k_state, k_out, bias=False)
+        # )
+        self.Ly_gauss = DBlock(k_state, k_state, k_out)
+
         self.dropout = nn.Dropout(dropout)
 
         self.init_params()
@@ -241,8 +297,16 @@ class HOGRUCell(nn.Module):
 
         state_new = self.dropout(RK(self.expand_input(x), state, self.f, dt, scheme, x_half=x_half, x_full=x_full))  # (batch, k_gru)
         #TODO check if this is best way to include input expansion
-        y_new = self.Ly(state_new)
-        return y_new, state_new
+        y_new_mean, y_new_logsigma = self.Ly_gauss(state_new)
+
+        y_new = normal_differential_sample(
+            MultivariateNormal(y_new_mean, logsigma2cov(y_new_logsigma))
+        )
+
+        state_mu = y_new_mean
+        state_logsigma = y_new_logsigma
+
+        return y_new, state_new, state_mu, state_logsigma
 
     def f(self, x, h):
         # x (batch, k_in), h (batch, k_gru)

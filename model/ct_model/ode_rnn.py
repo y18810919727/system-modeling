@@ -194,13 +194,11 @@ class ODE_RNN(nn.Module):
         generative_normal_dist = self.decode_observation(outputs, mode='dist')
         generative_likelihood = torch.sum(generative_normal_dist.log_prob(historical_ob))
 
-        # TODO:添加了call_loss部分的pred_likehood后，此处的pred_likelihood和model_train中的test_net中的pred_likelihood会特别大，未排查到原因
         outputs, memory_state = self.forward_prediction(future_input, memory_state=memory_state)
         pred_normal_dist = outputs['predicted_dist']
         pred_likelihood = torch.sum(pred_normal_dist.log_prob(future_ob))
 
         all_likelihood = generative_likelihood + pred_likelihood
-
 
         return {
             'loss': -all_likelihood/batch_size/l,
