@@ -1,4 +1,4 @@
-random_seed: ~
+random_seed: 0
 use_cuda: yes
 mode: train
 sample_tp: 1
