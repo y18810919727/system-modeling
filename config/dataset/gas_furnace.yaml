@@ -1,0 +1,10 @@
+type: gas_furnace
+input_size: 1
+observation_size: 1
+dataset_window: 2
+train_path: data/gas_furnace/gas_furnace_train.csv
+val_path: data/gas_furnace/gas_furnace_val.csv
+test_path: data/gas_furnace/gas_furnace_test.csv
+target_names: ['1']
+history_length: 10
+forward_length: 30

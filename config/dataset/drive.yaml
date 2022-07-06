@@ -1,0 +1,10 @@
+type: drive
+input_size: 1
+observation_size: 1
+dataset_window: 2
+train_path: data/drive/drive_train.csv
+val_path: data/drive/drive_val.csv
+test_path: data/drive/drive_test.csv
+target_names: ['z1']
+history_length: 20
+forward_length: 60

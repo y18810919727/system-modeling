@@ -1,0 +1,10 @@
+type: actuator
+input_size: 1
+observation_size: 1
+dataset_window: 2
+train_path: data/actuator/actuator_train.csv
+val_path: data/actuator/actuator_val.csv
+test_path: data/actuator/actuator_test.csv
+target_names: ['p']
+history_length: 20
+forward_length: 60

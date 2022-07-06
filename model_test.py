@@ -12,6 +12,7 @@ import numpy as np
 from lib import util
 from torch.utils.data import DataLoader
 from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
+from dataset import ActuatorDataset, BallbeamDataset, DriveDataset, DryerDataset, GasFurnaceDataset
 import traceback
 from matplotlib import pyplot as plt
 import hydra
@@ -107,6 +108,31 @@ def main_test(args, logging, ckpt_path):
                                               args.dataset.dataset_window, dilation=args.dataset.dilation)
     elif args.dataset.type == 'cstr':
         dataset = CstrDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'actuator':
+        dataset = ActuatorDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'ballbeam':
+        dataset = BallbeamDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'drive':
+        dataset = DriveDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'dryer':
+        dataset = DryerDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'gas_furnace':
+        dataset = GasFurnaceDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 

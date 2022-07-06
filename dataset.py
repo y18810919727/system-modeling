@@ -467,3 +467,155 @@ class CTSample:
         external_input = add_tp(external_input, dt)
         # observation = add_tp(observation, dt)
         return external_input, observation
+
+
+# PR-SSM Dataset: actuator, ballbeam, drive, dryer, gas_furnace
+class ActuatorDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        begin_pos = []
+
+        # 每个column对应的数据含义 ['in','out']
+        self.df = df
+        self.used_columns = ['u', 'p']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        mean = df.mean()
+        std = df.std()
+        return (df - mean) / std
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df['u'], dtype=np.float32)
+        data_out = np.array(data_df['p'], dtype=np.float32)
+
+        return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+
+
+class BallbeamDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        begin_pos = []
+
+        # 每个column对应的数据含义 ['in','out']
+        self.df = df
+        self.used_columns = ['0', '1']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        mean = df.mean()
+        std = df.std()
+        return (df - mean) / std
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df['0'], dtype=np.float32)
+        data_out = np.array(data_df['1'], dtype=np.float32)
+
+        return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+
+
+class DriveDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        begin_pos = []
+
+        # 每个column对应的数据含义 ['in','out']
+        self.df = df
+        self.used_columns = ['u1', 'z1']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        mean = df.mean()
+        std = df.std()
+        return (df - mean) / std
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df['u1'], dtype=np.float32)
+        data_out = np.array(data_df['z1'], dtype=np.float32)
+
+        return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+
+
+class DryerDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        begin_pos = []
+
+        # 每个column对应的数据含义 ['in','out']
+        self.df = df
+        self.used_columns = ['0', '1']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        mean = df.mean()
+        std = df.std()
+        return (df - mean) / std
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df['0'], dtype=np.float32)
+        data_out = np.array(data_df['1'], dtype=np.float32)
+
+        return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+
+
+class GasFurnaceDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        begin_pos = []
+
+        # 每个column对应的数据含义 ['in','out']
+        self.df = df
+        self.used_columns = ['0', '1']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        mean = df.mean()
+        std = df.std()
+        return (df - mean) / std
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df['0'], dtype=np.float32)
+        data_out = np.array(data_df['1'], dtype=np.float32)
+
+        return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
+

@@ -1,0 +1,10 @@
+type: dryer
+input_size: 1
+observation_size: 1
+dataset_window: 2
+train_path: data/dryer/dryer_train.csv
+val_path: data/dryer/dryer_val.csv
+test_path: data/dryer/dryer_test.csv
+target_names: ['1']
+history_length: 20
+forward_length: 60
