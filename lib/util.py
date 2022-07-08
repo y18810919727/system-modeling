@@ -2,6 +2,8 @@
 # -*- coding:utf8 -*-
 
 import os
+
+import numpy
 import yaml
 import numpy as np
 import json
@@ -11,8 +13,10 @@ import os
 import re
 
 from pandas import DataFrame
+import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 from functools import reduce
+import itertools
 from operator import and_, or_
 import pandas
 
@@ -254,12 +258,72 @@ def generate_data_frame(ckpt_dir='ckpt', root_dir='../', date=None, model=None, 
 
     return data, df, path_list
 
+def df2table(path, output_path=None):
+    # construct a zero dataframe, columns = ['0.25','0.5','1'], indexes = ['RSSM','RSSM-O']
+    df = DataFrame(
+        index=['', 'VAE-RNN', 'SRNN', 'STORN', 'RSSM', 'RSSM-O', 'ODE-RNN', 'Time-Aware', 'ODE-RSSM', 'ODE-RSSM-O'],
+        columns=['25%(uneven)','25%(uneven)-E','25%(even)','25%(even)-E','50%(uneven)-E','50%(uneven)-E','50%(even)','50%(even)-E','100%','100%-E']
+    )
+    df.iloc[0, :] = ['MLL', 'RMSE','MLL', 'RMSE','MLL', 'RMSE','MLL', 'RMSE','MLL', 'RMSE']
+    original_data = pd.read_csv(path)
+
+    sp_keys = [f'sp={_}' for _ in ['0.25', '0.5', '1']]
+    even_keys = ['sp_even=.alse', 'sp_even=.rue'] # 适配true/false, True/False的大小写
+    # Cartesian produc of sp_keys and even_keys
+    # keys = [''.join(i) for i in product(sp_keys, even_keys)]
+
+    index_mapping = {
+        'VAE-RNN': lambda x: 'vae-rnn' in x or 'vae_rnn' in x,
+        'SRNN': lambda x: 'srnn' in x,
+        'STORN': lambda x: 'storn' in x,
+        'ODE-RNN': lambda x: 'ode_rnn' in x or 'ode-rnn' in x,
+        'Time-Aware': lambda x: 'time_aware' in x or 'time-aware' in x,
+        'RSSM': lambda x: 'final_rssm' in x and 'model.D=1,' in x,
+        'RSSM-O': lambda x: 'final_rssm' in x and 'model.D=1,' not in x,
+        'ODE-RSSM': lambda x: 'ode_rssm' in x and 'model.D=1,' in x,
+        'ODE-RSSM-O': lambda x: 'ode_rssm' in x and 'model.D=1,' not in x,
+    }
+    # print(original_data.index)
+    for group_id, key in enumerate(itertools.product(sp_keys, even_keys)):
+        sp_key, even_key = key
+        if sp_key.endswith('1') and even_key.endswith('rue'):
+            # sp = 1的时候不区分 even=false还是even=True
+            continue
+        # Finding the rows in original_data that both sp_key and even_key exist in index
+        for row_id in range(len(original_data.index)):
+            ckpt_name = original_data.iloc[row_id, 0]
+            if sp_key in ckpt_name and \
+                    (sp_key.endswith('1') or len(re.findall(even_key, ckpt_name)) != 0):
+                # 进入此处说明sp_key和even key匹配成功
+                likelihood_idx = group_id * 2
+                rmse_idx = group_id * 2 + 1
+                for idx, filter_map in index_mapping.items():
+                    # print(ckpt_name, idx)
+                    if filter_map(ckpt_name):
+                        # df.iloc[row_id, likelihood_idx] = original_data.iloc[row_id, idx]
+                        # df.iloc[row_id, rmse_idx] = original_data.iloc[row_id, idx + 1]
+                        def update_value(a, b):
+                            if np.isnan(a) or b < a:
+                                return b
+                            else:
+                                return a
+                        df.loc[idx][likelihood_idx] = update_value(df.loc[idx][likelihood_idx], float(original_data.iloc[row_id]['pred_likelihood']))
+                        df.loc[idx][rmse_idx] = update_value(df.loc[idx][rmse_idx], float(original_data.iloc[row_id]['pred_multisample_rmse']))
+    # 保留3位小数
+    df = df.round(3)
+    if output_path is None:
+        output_path = os.path.join(path.split('/')[:-1], path.split('/')[-1].split('.')[0] + 'output' + '.xlsx')
+    df.to_excel(output_path)
+    df.to_csv(output_path.replace('.xlsx', '.csv'))
+
+
 
 if __name__ == '__main__':
     # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model='oderssm_ode')
     # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', model=['ode_rssm_schedule'], sort_key='likelihood', key_words='iw_trajs')
-    data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='vll', key_words=['sp=0.25','even=False'], dataset='winding', date='2022-05-01_09-00-00')
-    print('\n'.join(path_list))
-    pandas.set_option('display.width', 1000)
-    for df in dfs:
-        print(df)
+    # data, dfs, path_list = generate_data_frame(ckpt_dir='ckpt', root_dir='../', sort_key='vll', key_words=['sp=0.25','even=False'], dataset='winding', date='2022-05-01_09-00-00')
+    # print('\n'.join(path_list))
+    # pandas.set_option('display.width', 1000)
+    # for df in dfs:
+    #     print(df)
+    df2table('./result_winding.csv', './result_winding_output.xlsx')

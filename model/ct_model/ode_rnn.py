@@ -157,25 +157,20 @@ class ODE_RNN(nn.Module):
         state_logsigma = torch.stack(state_logsigma, dim=0)
         predicted_seq_sample = torch.stack(predicted_seq_sample, dim=0)
         predicted_seq = torch.mean(predicted_seq_sample, dim=2)
+
+        marginal_predicted_dist = MultivariateNormal(
+            predicted_seq, torch.diag_embed(predicted_seq_sample.var(dim=2))
+            # 此处如何生成分布(如何提取均值和方差)
+        )
         states = {
             'state_mu': state_mu,
             'state_logsigma': state_logsigma,
         }
-
-        predicted_dist = self.decode_observation(states, mode='dist')
-
-        # if n_traj == 1:
-        #     predicted_dist = MultivariateNormal(
-        #         predicted_seq, torch.diag_embed(torch.zeros_like(predicted_seq))
-        #     )
-        # else:
-        #     predicted_dist = MultivariateNormal(
-        #         predicted_seq_sample.mean(dim=2), torch.diag_embed(predicted_seq_sample.var(dim=2))
-        #     )
-
+        sampled_predicted_dist = self.decode_observation(states, mode='dist')
         outputs = {
             'predicted_seq_sample': predicted_seq_sample,
-            'predicted_dist': predicted_dist,
+            'predicted_dist': marginal_predicted_dist,
+            'sampled_predicted_dist': sampled_predicted_dist,
             'predicted_seq': predicted_seq
         }
         return outputs, {'hn': hn}
@@ -195,7 +190,7 @@ class ODE_RNN(nn.Module):
         generative_likelihood = torch.sum(generative_normal_dist.log_prob(historical_ob))
 
         outputs, memory_state = self.forward_prediction(future_input, memory_state=memory_state)
-        pred_normal_dist = outputs['predicted_dist']
+        pred_normal_dist = outputs['sampled_predicted_dist']
         pred_likelihood = torch.sum(pred_normal_dist.log_prob(future_ob))
 
         all_likelihood = generative_likelihood + pred_likelihood
