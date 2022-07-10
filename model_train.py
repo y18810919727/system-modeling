@@ -16,7 +16,7 @@ import pandas
 import pandas as pd
 
 from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
-from dataset import ActuatorDataset, BallbeamDataset, DriveDataset, DryerDataset, GasFurnaceDataset
+from dataset import ActuatorDataset, BallbeamDataset, DriveDataset, DryerDataset, GasFurnaceDataset, SarcosArmDataset
 from torch.utils.data import DataLoader
 from lib import util
 import hydra
@@ -305,6 +305,21 @@ def main_train(args, logging):
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
         ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
         val_dataset = GasFurnaceDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type.startswith('sarcos'):
+        objects = pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), 'data/sarcos/data_url.csv')
+        )
+        base = os.path.join(hydra.utils.get_original_cwd(), 'data/sarcos')
+        if not os.path.exists(base):
+            os.mkdir(base)
+
+        train_dataset = SarcosArmDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.train_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+        val_dataset = SarcosArmDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.val_path)
         ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 

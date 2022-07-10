@@ -619,3 +619,34 @@ class GasFurnaceDataset(Dataset):
 
         return np.expand_dims(data_in, axis=1), np.expand_dims(data_out, axis=1)
 
+
+class SarcosArmDataset(Dataset):
+    def __init__(self, df, length=1000, step=5):
+        begin_pos = []
+
+        # 每个column对应的数据含义 ['in','out']
+        self.df = df
+        self.used_columns = ['0', '1', '2', '3', '4', '5', '6',
+                             '21', '22', '23', '24', '25', '26', '27']
+        self.length = length
+        for j in range(0, df.shape[0] - length + 1, step):
+            begin_pos.append(j)
+        self.begin_pos = begin_pos
+        self.df = self.normalize(self.df)
+
+    def normalize(self, df):
+        mean = df.mean()
+        std = df.std()
+        return (df - mean) / std
+
+    def __len__(self):
+        return len(self.begin_pos)
+
+    def __getitem__(self, item):
+        pos = self.begin_pos[item]
+        data_df = self.df.iloc[pos:pos + self.length]
+        data_in = np.array(data_df[['21', '22', '23', '24', '25', '26', '27']], dtype=np.float32)
+        data_out = np.array(data_df[['0', '1', '2', '3', '4', '5', '6']], dtype=np.float32)
+
+        return data_in, data_out
+

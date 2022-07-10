@@ -12,7 +12,7 @@ import numpy as np
 from lib import util
 from torch.utils.data import DataLoader
 from dataset import WesternDataset, WesternConcentrationDataset, CstrDataset, WindingDataset, IBDataset, WesternDataset_1_4, CTSample, NLDataset
-from dataset import ActuatorDataset, BallbeamDataset, DriveDataset, DryerDataset, GasFurnaceDataset
+from dataset import ActuatorDataset, BallbeamDataset, DriveDataset, DryerDataset, GasFurnaceDataset, SarcosArmDataset
 import traceback
 from matplotlib import pyplot as plt
 import hydra
@@ -133,6 +133,11 @@ def main_test(args, logging, ckpt_path):
 
     elif args.dataset.type == 'gas_furnace':
         dataset = GasFurnaceDataset(pd.read_csv(
+            os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
+        ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
+
+    elif args.dataset.type == 'sarcos':
+        dataset = SarcosArmDataset(pd.read_csv(
             os.path.join(hydra.utils.get_original_cwd(), args.dataset.test_path)
         ), args.dataset.history_length + args.dataset.forward_length, step=args.dataset.dataset_window)
 

@@ -1,0 +1,10 @@
+type: sarcos
+input_size: 7
+observation_size: 7
+dataset_window: 2
+train_path: data/sarcos/sarcos_train.csv
+val_path: data/sarcos/sarcos_val.csv
+test_path: data/sarcos/sarcos_test.csv
+target_names: ['0', '1', '2', '3', '4', '5', '6']
+history_length: 60
+forward_length: 180
