@@ -262,7 +262,7 @@ def df2table(path, output_path=None):
     # construct a zero dataframe, columns = ['0.25','0.5','1'], indexes = ['RSSM','RSSM-O']
     df = DataFrame(
         index=['', 'VAE-RNN', 'SRNN', 'STORN', 'RSSM', 'RSSM-O', 'ODE-RNN', 'Time-Aware', 'ODE-RSSM', 'ODE-RSSM-O'],
-        columns=['25%(uneven)','25%(uneven)-E','25%(even)','25%(even)-E','50%(uneven)-E','50%(uneven)-E','50%(even)','50%(even)-E','100%','100%-E']
+        columns=['25%(uneven)','25%(uneven)-E','25%(even)','25%(even)','50%(uneven)','50%(uneven)','50%(even)','50%(even)','100%','100%']
     )
     df.iloc[0, :] = ['MLL', 'RMSE','MLL', 'RMSE','MLL', 'RMSE','MLL', 'RMSE','MLL', 'RMSE']
     original_data = pd.read_csv(path)

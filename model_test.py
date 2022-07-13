@@ -308,7 +308,7 @@ def main_test(args, logging, ckpt_path):
                                                         pred_observations_sample, pred_observations_sample_traj, external_input]] + [weight_map])
 
     for i, result in enumerate(single_data_generator(acc_info)):
-        if i % int(len(dataset) // args.test.plt_cnt) == 0:
+        if i % int((len(dataset)-1) // args.test.plt_cnt + 1) == 0:
 
             observation, decode_observations, decode_observation_low, decode_observation_high, \
             pred_observation_low, pred_observation_high, pred_observations_sample, pred_observations_sample_traj, external_input = [x for x in
@@ -541,6 +541,9 @@ def main_app(args: DictConfig) -> None:
     )
     if exp_config is not None:
         exp_config.test = args.test
+        if args.test.sp_change:
+            exp_config.sp = args.sp
+            exp_config.sp_even = args.sp_even
         args = exp_config
 
     # endregion
