@@ -159,7 +159,7 @@ def main_test(args, logging, ckpt_path):
     elif args.dataset.type.startswith('southeast'):
         from dataset import SoutheastThickener
 
-        data = np.load(os.path.join(hydra.utils.get_original_cwd(), args.dataset.data_path))
+        data = np.load(os.path.join(hydra.utils.get_original_cwd(), args.dataset.data_path), allow_pickle=True)
         dataset = SoutheastThickener(data,
                                      length=args.dataset.history_length + args.dataset.forward_length,
                                      step=args.dataset.step,

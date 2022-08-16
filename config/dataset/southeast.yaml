@@ -2,7 +2,7 @@ type: southeast
 input_size: 4
 observation_size: 1
 step: 10
-data_path: data/south_con/class1_78581.npy
+data_path: data/south_con/thickener_1.npy # it can also be set as thickener_2.npy
 io: 4-1
 history_length: 30
 forward_length: 60

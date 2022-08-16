@@ -365,8 +365,6 @@ class SoutheastThickener(Dataset):
             seed: default 0
         """
 
-        # TODO: 支持序列长度非90
-        assert length == 90
         if not isinstance(seed, int):
             seed = 0
 
@@ -388,7 +386,19 @@ class SoutheastThickener(Dataset):
         else:
             raise NotImplementedError()
 
+        # region old version
+        # data = np.array(data, dtype=np.float32)
+        # endregion
+
+        # region new version
+        def iter(data):
+            for k, v in data.item().items():
+                for i in range(0, v.shape[0] - length * dilation + 1, step):
+                    yield v[i:i+length]
+        data = np.stack([x for x in iter(data)], axis=0)
         data = np.array(data, dtype=np.float32)
+        # endregion
+
         self.smooth_alpha = smooth_alpha
 
         for _ in self.io[1]:
