@@ -14,6 +14,6 @@ from model.rssm import RSSM
 from model.rnn import RNN
 from model.storn import STORN
 from model.storn_sqrt import STORN_SQRT
-from model.ct_model import TimeAwareRNN, ODERSSM, ODE_RNN, ODEVRNN
+from model.ct_model import TimeAwareRNN, ODERSSM, ODE_RNN
 from model.rssm import RSSM
 from model.vaernn import VAERNN

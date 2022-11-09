@@ -12,7 +12,7 @@ from model.common import MLP
 from model.ct_model.ct_common import vector_orth, vector_sta, vector_normal
 
 class ODEFunc(nn.Module):
-    def __init__(self, ode_net, inputs=None, ode_type='sta'):
+    def __init__(self, ode_net, inputs_interpolation=None, ode_type='sta'):
         """
 
         Args:
@@ -22,7 +22,7 @@ class ODEFunc(nn.Module):
         """
 
         super(ODEFunc, self).__init__()
-        self.inputs = inputs
+        self.inputs_interpolation = inputs_interpolation
 
         self.gradient_net = ode_net
         # normal: mlp; sta: mlp(tanh) - ht; orth: mlp * sin
@@ -49,11 +49,12 @@ class ODEFunc(nn.Module):
 
     def get_ode_gradient_nn(self, t_local, y):
 
-        if self.inputs is None:
+        if self.inputs_interpolation is None:
             dy_dt = self.gradient_net(y)
         else:
+            inputs = self.inputs_interpolation(t_local)
             dy_dt = self.gradient_net(
-                torch.cat([y, self.inputs], dim=-1)
+                torch.cat([y, inputs], dim=-1)
             )
         return self.gradient_func(y, dy_dt)
 

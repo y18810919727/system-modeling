@@ -8,7 +8,7 @@ import json
 import torch
 # from model import vaeakf_combinational_linears
 from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
-from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT, ODE_RNN, ODEVRNN
+from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT, ODE_RNN
 # from model.ct_model.ode_rssm_merge import ODERSSM_Merge
 
 

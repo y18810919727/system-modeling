@@ -9,11 +9,9 @@ from model.common import DiagMultivariateNormal as MultivariateNormal, MLP
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, kld_gauss
 from model.ct_model import ODEFunc
 from model.ct_model.diffeq_solver import solve_diffeq
-from einops import rearrange, reduce
+from model.ct_model.interpolation import ConstInterpolation, KernelInterpolation
+from einops import rearrange
 from torch.nn import GRUCell
-from model.vrnn import VRNN
-from model.ct_model.odernn_encoder import ODERNN_encoder
-
 
 
 class ODERSSM(nn.Module):
@@ -21,7 +19,7 @@ class ODERSSM(nn.Module):
     def __init__(self, input_size, state_size, observations_size,
                  ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4,
                  ode_type='normal', detach='all', weight='average', ode_ratio='half', iw_trajs=1, odernn_encoder=False,
-                 z_in_ode=False):
+                 z_in_ode=False, input_interpolation=True):
 
         super(ODERSSM, self).__init__()
 
@@ -34,6 +32,7 @@ class ODERSSM(nn.Module):
         self.odernn_encoder = odernn_encoder
         self.z_in_ode = z_in_ode
         self.iw_trajs = iw_trajs
+        self.input_interpolation = input_interpolation
         if ode_ratio == 'half':
             self.h_size = int(k/2)
         elif ode_ratio == 'all':
@@ -42,12 +41,8 @@ class ODERSSM(nn.Module):
             raise NotImplementedError
         self.gru_cell = GRUCell(2*k, k)
 
-        if self.odernn_encoder:
-            self.process_x = ODERNN_encoder(observations_size, k)
-            self.process_u = ODERNN_encoder(input_size, k)
-        else:
-            self.process_x = PreProcess(observations_size, k)
-            self.process_u = PreProcess(input_size, k)
+        self.process_x = PreProcess(observations_size, k)
+        self.process_u = PreProcess(input_size, k)
         self.process_z = PreProcess(state_size, k)
 
         self.posterior_gauss = DBlock(2*k, 3*k, state_size)
@@ -73,6 +68,32 @@ class ODERSSM(nn.Module):
         self.detach = detach
         self.weight = weight
 
+    def interpolate(self, u, nu, z, dt):
+
+        if self.input_interpolation:
+            y = torch.stack([u, nu], dim=0)
+            if self.z_in_ode:
+                y = torch.cat([y, z.unsqueeze(0).repeat(2, 1, 1)], dim=-1)
+            T = torch.stack([torch.zeros_like(dt), dt], dim=0)
+            inputs = KernelInterpolation(T, y)
+        else:
+            inputs = ConstInterpolation(
+                torch.cat([u, z], dim=-1) if self.z_in_ode else u,
+            )
+        return inputs
+
+    def ode_prior(self, h, inputs, dt):
+
+        ode_func = ODEFunc(ode_net=self.gradient_net, inputs_interpolation=inputs, ode_type=self.ode_type)
+        h = solve_diffeq(
+            ode_func, h,
+            torch.stack([torch.zeros_like(dt), dt], dim=0),
+            self.ode_solver,
+            odeint_rtol=self.rtol,
+            odeint_atol=self.atol
+        )[-1]
+        return h
+
     def forward_posterior(self, external_input_seq, observations_seq, memory_state=None):
         """
         训练时：估计隐变量后验分布，并采样，用于后续计算模型loss
@@ -88,12 +109,8 @@ class ODERSSM(nn.Module):
 
         external_input_seq, dt = external_input_seq[..., :-1], external_input_seq[..., -1:]
 
-        if self.odernn_encoder:
-            external_input_seq_embed = self.process_u(external_input_seq, dt[..., 0])
-            observations_seq_embed = self.process_x(observations_seq, dt[..., 0])
-        else:
-            external_input_seq_embed = self.process_u(external_input_seq)
-            observations_seq_embed = self.process_x(observations_seq)
+        external_input_seq_embed = self.process_u(external_input_seq)
+        observations_seq_embed = self.process_x(observations_seq)
         device = external_input_seq.device
         l, batch_size, _ = external_input_seq.size()
 
@@ -125,19 +142,15 @@ class ODERSSM(nn.Module):
 
             # dt[i]代表 t[i+1] - t[i]，预测t[i+1]时刻的h
 
-            if self.z_in_ode:
-                ode_func = ODEFunc(ode_net=self.gradient_net,
-                                   inputs=torch.cat([external_input_seq_embed[i], z_t_embed], dim=-1),
-                                   ode_type=self.ode_type)
-            else:
-                ode_func = ODEFunc(ode_net=self.gradient_net, inputs=external_input_seq_embed[i], ode_type=self.ode_type)
-            h = solve_diffeq(
-                ode_func, h,
-                torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]),
-                self.ode_solver,
-                odeint_rtol=self.rtol,
-                odeint_atol=self.atol
-            )[-1]
+            # h = self.ode_solve(h, dt[i], external_input_seq_embed[i], z_t_embed)
+            inputs = self.interpolate(
+                external_input_seq_embed[i],
+                external_input_seq_embed[min(i+1, l-1)],
+                z_t_embed,
+                dt[i]
+            )
+
+            h = self.ode_prior(h, inputs, dt[i, :, 0])
             rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
 
             h_seq.append(h)
@@ -181,9 +194,10 @@ class ODERSSM(nn.Module):
 
         with torch.no_grad():
 
+            l, batch_size, _ = external_input_seq.size()
+            external_input_seq = external_input_seq.repeat(1, n_traj, 1)
             external_input_seq, dt = external_input_seq[..., :-1], external_input_seq[..., -1:]
 
-            l, batch_size, _ = external_input_seq.size()
 
             device = external_input_seq.device
 
@@ -194,7 +208,6 @@ class ODERSSM(nn.Module):
 
             predicted_seq_sample = []
 
-            external_input_seq = external_input_seq.repeat(1, n_traj, 1)
             h = h.repeat(n_traj, 1)
             rnn_hidden_state = rnn_hidden_state.repeat(n_traj, 1)
 
@@ -216,13 +229,7 @@ class ODERSSM(nn.Module):
                     MultivariateNormal(x_t_mean, logsigma2cov(x_t_logsigma))
                 )
 
-                if self.odernn_encoder:
-                    external_input_seq_embed_i, input_embed = self.process_u(
-                        external_input_seq[i:i+1], dt[i:i+1, ..., 0], input_embed, last_state=True
-                    )
-                    external_input_seq_embed_i = external_input_seq_embed_i[0]
-                else:
-                    external_input_seq_embed_i = self.process_u(external_input_seq[i])
+                external_input_seq_embed_i = self.process_u(external_input_seq[i])
 
                 h, rnn_hidden_state = self.GRU_update(torch.cat([
                     external_input_seq_embed_i,
@@ -230,23 +237,14 @@ class ODERSSM(nn.Module):
                 ], dim=-1), rnn_hidden_state
                 )
 
-                if self.z_in_ode:
-                    ode_func = ODEFunc(
-                        ode_net=self.gradient_net,
-                        inputs=torch.cat([external_input_seq_embed_i, z_t_embed]),
-                        ode_type=self.ode_type)
-                else:
-                    ode_func = ODEFunc(
-                        ode_net=self.gradient_net,
-                        inputs=external_input_seq_embed_i,
-                        ode_type=self.ode_type)
-                h = solve_diffeq(
-                    ode_func, h,
-                    torch.stack([torch.zeros_like(dt[i, :, 0]), dt[i, :, 0]]),
-                    self.ode_solver,
-                    odeint_rtol=self.rtol,
-                    odeint_atol=self.atol
-                )[-1]
+                inputs = self.interpolate(
+                    external_input_seq_embed_i,
+                    self.process_u(external_input_seq[min(i + 1, l - 1)]),
+                    z_t_embed,
+                    dt[i]
+                )
+
+                h = self.ode_prior(h, inputs, dt[i, :, 0])
                 rnn_hidden_state = self.update_rnn_hidden_state(h, rnn_hidden_state)
 
                 observations_sample = split_first_dim(x_t, (n_traj, batch_size))
@@ -350,13 +348,20 @@ class ODERSSM(nn.Module):
                 merge_first_two_dims(rnn_hidden_state_seq)
             )
 
-            if self.z_in_ode:
-                ode_inputs = torch.cat([external_input_seq_embed[-length:], z_t_seq_embed], dim=-1)
-            else:
-                ode_inputs = external_input_seq_embed[-length:]
+            # if self.z_in_ode:
+            #     ode_inputs = torch.cat([external_input_seq_embed[-length:], z_t_seq_embed], dim=-1)
+            # else:
+            #     ode_inputs = external_input_seq_embed[-length:]
+
+            ode_inputs = self.interpolate(
+                merge_first_two_dims(external_input_seq_embed[-length:]),
+                merge_first_two_dims(torch.cat([external_input_seq_embed[-length+1:], external_input_seq_embed[-1:]], dim=0)),
+                merge_first_two_dims(z_t_seq_embed),
+                merge_first_two_dims(dt[-length:])
+            )
             ode_func = ODEFunc(
                 ode_net=self.gradient_net,
-                inputs=merge_first_two_dims(ode_inputs),
+                inputs_interpolation=ode_inputs,
                 ode_type=self.ode_type)
 
             h_seq = split_first_dim(
@@ -382,120 +387,6 @@ class ODERSSM(nn.Module):
         # )
         split_generative_likelihood = rearrange(generative_likelihood, 'l (n bs) -> l n bs', n=self.iw_trajs)
         generative_likelihood = torch.sum(torch.logsumexp(split_generative_likelihood, dim=1) - torch.tensor(self.iw_trajs))
-
-        kl_items = torch.stack(kl_items)
-        if self.weight == 'average':
-            weight = torch.ones_like(kl_items) / D
-        elif self.weight == 'decay':
-            weight = torch.softmax(torch.arange(0, D).flip(dims=(0,)).float(), dim=-1).to(kl_items.device)
-        elif self.weight == 'D_1':
-            weight = torch.ones_like(kl_items)
-            weight[0] = D
-            # weight = torch.softmax(weight, dim=-1)
-
-        kl_sum = (weight*kl_items).sum()
-
-        return {
-            'loss': (kl_sum - generative_likelihood)/batch_size/l,
-            'kl_loss': kl_sum/batch_size/l,
-            'likelihood_loss': -generative_likelihood/batch_size/l
-        }
-
-
-    def call_loss_single(self, external_input_seq, observations_seq, memory_state=None):
-        """
-        此方法仅运行在调用完forward_posterior之后
-        Returns:
-        """
-        # external_input_seq, dt = external_input_seq[..., :-1], external_input_seq[..., -1:]
-        dt = external_input_seq[..., -1:]
-        outputs, memory_state = self.forward_posterior(external_input_seq, observations_seq, memory_state)
-
-        h_seq = outputs['h_seq']
-        rnn_hidden_state_seq = outputs['rnn_hidden_state_seq']
-        state_mu = outputs['state_mu']
-        state_logsigma = outputs['state_logsigma']
-        external_input_seq_embed = outputs['external_input_seq_embed']
-
-        l, batch_size, _ = observations_seq.shape
-
-        D = self.D if self.training else 1
-
-        kl_sum = 0
-
-        h_seq = h_seq[:-1]
-        rnn_hidden_state_seq = rnn_hidden_state_seq[:-1]
-
-        if self.detach == 'first':
-            is_detach = lambda d: d > 0
-        elif self.detach == 'half':
-            is_detach = lambda d: d > int(D/2)
-        elif self.detach == 'none':
-            is_detach = lambda _: False
-        else:
-            is_detach = lambda _: False
-
-        kl_items = []
-        for d in range(D):
-            length = h_seq.size()[0]
-
-            # 预测的隐变量先验分布
-
-            prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-                rnn_hidden_state_seq
-            )
-            # 计算loss中的kl散度项
-            kl_items.append(multivariate_normal_kl_loss(
-                state_mu[-length:].detach() if is_detach(d) else state_mu[-length:],
-                logsigma2cov(state_logsigma[-length:].detach()) if is_detach(d) else logsigma2cov(state_logsigma[-length:]),
-                prior_z_t_seq_mean,
-                logsigma2cov(prior_z_t_seq_logsigma)
-            ))
-
-            # 利用reparameterization trick 采样z
-            z_t_seq = normal_differential_sample(
-                MultivariateNormal(prior_z_t_seq_mean, logsigma2cov(prior_z_t_seq_logsigma))
-            )
-            z_t_seq_embed = self.process_z(z_t_seq)
-
-            h_seq, rnn_hidden_state_seq = self.GRU_update(
-                merge_first_two_dims(
-                    torch.cat([
-                        external_input_seq_embed[-length:],
-                        z_t_seq_embed
-                    ], dim=-1)
-                ),
-                merge_first_two_dims(rnn_hidden_state_seq)
-            )
-
-            h_seq = split_first_dim(
-                self.diffeq_solver(h_seq,
-                                   torch.stack([
-                                       merge_first_two_dims(torch.zeros_like(dt[-length:, :, 0])),
-                                       merge_first_two_dims(dt[-length:, :, 0]),
-                                   ])
-                                   )[-1], (length, batch_size)
-            )[:-1]
-
-            rnn_hidden_state_seq = split_first_dim(rnn_hidden_state_seq, (length, batch_size))[:-1]
-            rnn_hidden_state_seq = self.update_rnn_hidden_state(h_seq, rnn_hidden_state_seq)
-
-        # kl_sum = kl_sum/D
-
-        # prior_z_t_seq_mean, prior_z_t_seq_logsigma = self.prior_gauss(
-        #     torch.cat([self.external_input_seq_embed, self.h_seq[:-1]], dim=-1)
-        # )
-        #
-        # kl_sum = multivariate_normal_kl_loss(
-        #     self.state_mu,
-        #     logsigma2cov(self.state_logsigma),
-        #     prior_z_t_seq_mean,
-        #     logsigma2cov(prior_z_t_seq_logsigma)
-        # )
-        # 对h解码得到observation的generative分布
-        observations_normal_dist = self.decode_observation(outputs, mode='dist')
-        # 计算loss的第二部分：观测数据的重构loss
-        generative_likelihood = torch.sum(observations_normal_dist.log_prob(observations_seq))
 
         kl_items = torch.stack(kl_items)
         if self.weight == 'average':

@@ -14,15 +14,17 @@ from torch import nn
 
 
 class ScaleNet(nn.Module):
-    def __init__(self, scale, func):
+    def __init__(self, scale, func, t0=None, t1=None):
         super(ScaleNet, self).__init__()
         if not isinstance(func, torch.nn.Module):
             raise ValueError('func must be a nn.Module')
         self.scale = scale.detach()
         self.func = func
+        self.t0 = t0
+        self.t1 = t1
 
     def __call__(self, t, z):
-        gradient = self.func(t, z)
+        gradient = self.func(self.t0 + t * self.scale, z)
         return gradient * self.scale
 
 
@@ -78,7 +80,7 @@ def odeint_scale(f, y0, tps, rtol=1e-7, atol=1e-9, method=None, options=None):
     y = y0
     for i in range(tps.size(0)-1):
         dt = tps[i+1] - tps[i]
-        nf = ScaleNet(scale=dt, func=f)
+        nf = ScaleNet(scale=dt, func=f, t0=tps[i], t1=tps[i+1])
         ys = odeint(nf, y, torch.Tensor([0.0, 1.0]).to(y0.device), rtol=rtol, atol=atol, method=method, options=options)
         sols.append(ys[-1])
 
