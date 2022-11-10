@@ -6,3 +6,5 @@ mongoengine==0.23.1
 torchdiffeq==0.2.2
 oss2
 einops==0.4.1
+torchsde
+torchcde

@@ -11,6 +11,13 @@ from torch import nn
 from common import softplus, inverse_softplus, cov2logsigma, logsigma2cov
 from model.func import weighted_linear, normal_differential_sample
 
+from torch.distributions.multivariate_normal import MultivariateNormal, _precision_to_scale_tril, _batch_mahalanobis
+
+from torch.distributions import constraints
+from torch.distributions.distribution import Distribution
+from torch.distributions.utils import _standard_normal, lazy_property
+from torch.distributions.constraints import Constraint
+
 
 class ValStepSchedule:
     def __init__(self, optimizer, lr_scheduler_nstart, lr_scheduler_nepochs, lr_scheduler_factor, logger):
@@ -79,6 +86,9 @@ class DBlock(nn.Module):
         logsigma = self.fc_logsigma(t)
         return mu, logsigma
 
+def _stable_division(a, b, epsilon=1e-7):
+    b = torch.where(b.abs().detach() > epsilon, b, torch.full_like(b, fill_value=epsilon) * b.sign())
+    return a / b
 
 class DBlock_Relu(nn.Module):
     """ A basie building block for parametralize a normal distribution.
@@ -160,12 +170,6 @@ class MLP(nn.Module):
         return self.mlp(x)
 
 
-from torch.distributions.multivariate_normal import MultivariateNormal, _precision_to_scale_tril, _batch_mahalanobis
-
-from torch.distributions import constraints
-from torch.distributions.distribution import Distribution
-from torch.distributions.utils import _standard_normal, lazy_property
-from torch.distributions.constraints import Constraint
 
 class _DiagPositiveDefinite(Constraint):
     """

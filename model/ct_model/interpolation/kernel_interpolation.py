@@ -63,6 +63,14 @@ def K(X1, X2, ell=1.0, sf=1.0, eps=1e-5):
 
 class KernelInterpolation:
     def __init__(self, X, y, eps=1e-5, kernel='exp'):
+        """
+
+        Args:
+            X: time steps (len, batch size, 1)
+            y: series (len, batch size, dim)
+            eps:
+            kernel:
+        """
         X = X.transpose(0, 1)
         y = y.transpose(0, 1)
         batch_size, N, n_out = y.shape
@@ -96,7 +104,8 @@ class KernelInterpolation:
             if x.shape[0] == self.batch_size:
                 x = rearrange(x, 'b -> b o o', o=1)
             else:
-                x = repeat(x, 'o -> b o o', b=self.batch_size)
+                x = repeat(x, 'o -> b c o', b=self.batch_size, c=1)
+                # >> > repeat(image, 'h w -> (h h2) (w w2)', h2=2, w2=2).shape
         elif x.ndim == 2:
             x = x.unsqueeze(dim=1) # (batch size, 1) -> (batch size, 1, 1)
         kxX = self.K(x, self.X, self.ell, self.sf, self.eps)

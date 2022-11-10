@@ -181,3 +181,7 @@ def vector_orth(x, dx_dt):
 
         raise e
     return orth_dx_dt
+
+
+def dt2ts(dt):
+    return torch.cumsum(torch.cat([torch.zeros_like(dt[:1]), dt[:-1]], dim=0), dim=0)

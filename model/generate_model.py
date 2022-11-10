@@ -8,7 +8,7 @@ import json
 import torch
 # from model import vaeakf_combinational_linears
 from model import vaeakf_combinational_linears_random as vaeakf_combinational_linears
-from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT, ODE_RNN
+from model import VRNN, VAERNN, STORN, RNN, SRNN, ODERSSM, RSSM, TimeAwareRNN, DeepAR, STORN_SQRT, ODE_RNN, LatentSDE
 # from model.ct_model.ode_rssm_merge import ODERSSM_Merge
 
 
@@ -150,26 +150,6 @@ def generate_model(args):
             odernn_encoder=args.model.odernn_encoder,
             z_in_ode=args.model.z_in_ode
         )
-    elif args.model.type == 'ode_vrnn':
-        assert args.ct_time
-        model = ODEVRNN(
-            input_size=args.dataset.input_size,
-            state_size=args.model.state_size,
-            observations_size=args.dataset.observation_size,
-            ode_num_layers=args.model.ode_num_layers,
-            k=args.model.k_size,
-            D=args.model.D,
-            ode_hidden_dim=args.model.ode_hidden_dim,
-            ode_solver=args.model.ode_solver,
-            rtol=args.model.rtol,
-            atol=args.model.atol,
-            ode_type=args.model.ode_type,
-            weight=args.model.weight,
-            detach=args.model.detach,
-            ode_ratio=args.model.ode_ratio,
-            iw_trajs=args.model.iw_trajs,
-            ob_bptt=args.model.ob_bptt
-        )
     elif args.model.type == 'time_aware':
         assert args.ct_time
         model = TimeAwareRNN(
@@ -187,8 +167,23 @@ def generate_model(args):
             ode_solver=args.model.ode_solver,
             ode_num_layers=args.model.ode_num_layers,
         )
+    elif args.model.type == 'latent_sde':
+        assert args.ct_time
+        model = LatentSDE(
+            h_size=args.model.h_size,
+            u_size=args.dataset.input_size,
+            y_size=args.dataset.observation_size,
+            theta=args.model.theta,
+            mu=args.model.mu,
+            sigma=args.model.sigma,
+            inter=args.model.inter,
+            dt=args.model.dt,
+            rtol=args.model.rtol,
+            atol=args.model.atol,
+            method=args.model.method,
+            adaptive=args.model.adaptive,
+        )
 
-    # def __init__(self, k_in, k_out, k_state, dropout=0., cell_factory=GRUCell, interpol="constant", **kwargs):
     else:
         raise NotImplementedError
     return model

@@ -10,6 +10,7 @@ import torch
 import logging
 from torch import nn
 from numpy import *
+from typing import Optional, Union
 from sklearn.metrics import mean_squared_error
 
 
@@ -370,6 +371,35 @@ def vae_loss(kl_loss, rec_loss, epoch, kl_inc=False, kl_wait=10, kl_max=1.0):
     else:
         kl_coef = kl_max * (1-0.99 ** (epoch - kl_wait))
     return kl_coef * kl_loss + rec_loss
+
+
+class LinearScheduler(object):
+    def __init__(self, iters, maxval=1.0):
+        self._iters = max(1, iters)
+        self._val = maxval / self._iters
+        self._maxval = maxval
+
+    def step(self):
+        self._val = min(self._maxval, self._val + self._maxval / self._iters)
+
+    @property
+    def val(self):
+        return self._val
+
+class EMAMetric(object):
+    def __init__(self, gamma: Optional[float] = .99):
+        super(EMAMetric, self).__init__()
+        self._val = 0.
+        self._gamma = gamma
+
+    def step(self, x: Union[torch.Tensor, np.ndarray]):
+        x = x.detach().cpu().numpy() if torch.is_tensor(x) else x
+        self._val = self._gamma * self._val + (1 - self._gamma) * x
+        return self._val
+
+    @property
+    def val(self):
+        return self._val
 
 def training_loss_visualization(base_dir):
     print(base_dir)

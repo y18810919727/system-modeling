@@ -4,3 +4,4 @@
 
 from model.ct_model.interpolation.const_interpolation import ConstInterpolation
 from model.ct_model.interpolation.kernel_interpolation import KernelInterpolation
+from model.ct_model.interpolation.cubic_intertpolation import CubicInterpolation
