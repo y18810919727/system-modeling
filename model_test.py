@@ -254,6 +254,12 @@ def main_test(args, logging, ckpt_path):
             losses = model.call_loss(external_input, observation)
             loss, kl_loss, likelihood_loss = losses['loss'], losses['kl_loss'], losses['likelihood_loss']
 
+            # tensor2cpu
+            tensor2cpu = lambda a: a.cpu() if type(a) == torch.Tensor else a
+            loss = tensor2cpu(loss)
+            kl_loss = tensor2cpu(kl_loss)
+            likelihood_loss = tensor2cpu(likelihood_loss)
+
             if kl_loss != 0:
                 loss = vae_loss(kl_loss, likelihood_loss, 1000, kl_inc=args.train.kl_inc,
                                 kl_wait=args.train.kl_wait, kl_max=args.train.kl_max)
