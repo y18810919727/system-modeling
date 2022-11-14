@@ -9,4 +9,4 @@
 cd ../
 # Train
 
-CUDA_VISIBLE_DEVICES=3 python model_train.py dataset=cstr save_dir=tmp model=latent_sde model.inter=cubic ct_time=true sp=0.5 random_seed=0 train.batch_size=256 train.epochs=1 train.eval_epochs=1
+CUDA_VISIBLE_DEVICES=3 python model_train.py dataset=cstr save_dir=tmp model=latent_sde model.inter=zero train.init_weights=False ct_time=true sp=0.5 random_seed=0 train.batch_size=256 train.epochs=1 train.eval_epochs=1

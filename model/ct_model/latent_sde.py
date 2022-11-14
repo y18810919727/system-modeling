@@ -12,7 +12,7 @@ from model.func import normal_differential_sample, multivariate_normal_kl_loss, 
 from einops import rearrange
 from model.ct_model import ODEFunc
 from model.ct_model.diffeq_solver import solve_diffeq
-from model.ct_model.interpolation import CubicInterpolation, KernelInterpolation
+from model.ct_model.interpolation import CubicInterpolation, KernelInterpolation, ZeroInterpolation
 
 import torch
 from torch import distributions, nn, optim
@@ -72,7 +72,13 @@ class LatentSDE(torchsde.SDEIto):
         self.u_inter, self.y_inter = None, None
 
     def interpolate(self, ts, x):
-        Interpolation = KernelInterpolation if self.inter == 'gp' else CubicInterpolation
+        if self.inter == 'gp':
+            Interpolation = KernelInterpolation
+        elif self.inter == 'cubic':
+            Interpolation = CubicInterpolation
+        elif self.inter =='zero':
+            Interpolation = ZeroInterpolation
+
         return Interpolation(ts, x)
 
     def update_u(self, ts, u):

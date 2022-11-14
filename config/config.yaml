@@ -19,6 +19,7 @@ train:
   kl_wait: 10
   kl_max: 1.0
   min_epochs: 200
+  init_weights: yes
 
 test:
   plt_cnt: 20

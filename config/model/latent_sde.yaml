@@ -3,7 +3,7 @@ h_size: 32   # The dimensional of deterministic hidden state
 theta: 1.0
 mu: 0.0
 sigma: 0.5
-inter: 'cubic' # cubic, gp
+inter: 'zero' # zero, cubic, gp
 dt: 5e-2 # 跑得太慢了的话把这个调大，但是不要超过0.1
 rtol: 0.001
 atol: 0.001

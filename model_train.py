@@ -125,7 +125,8 @@ def main_train(args, logging):
     if use_cuda:
         model = model.cuda()
 
-    init_network_weights(model)
+    if args.train.init_weights:
+        init_network_weights(model)
     logging('save dir = {}'.format(os.getcwd()))
     logging(model)
 

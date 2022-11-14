@@ -9,6 +9,12 @@ class CubicInterpolation:
             ts: len, batch_size, 1
             x:  len, batch_size, dim
         """
+        ts, x = self.process_input(ts, x)
+        coeffs = self.make_coefficients(ts, x)
+        self.X = self.make_interpolation(ts, coeffs)
+
+    def process_input(self, ts, x):
+
         length, batch_size, _ = x.shape
         if ts.shape == (length, batch_size, 1):
             ts = ts[:, 0, 0]
@@ -18,11 +24,13 @@ class CubicInterpolation:
             pass
         ts = ts.contiguous()
         x = x.transpose(0, 1).contiguous()
-        # ts = ts.transpose(0, 1)
-        # x = torch.cat([ts, x], dim=-1)
-        coeffs = torchcde.hermite_cubic_coefficients_with_backward_differences(x, ts)
-        # coeffs = torchcde.natural_cubic_spline_coeffs(x, t=ts)
-        self.X = torchcde.CubicSpline(coeffs, t=ts)
+        return ts, x
+
+    def make_coefficients(self, ts, x):
+        return torchcde.hermite_cubic_coefficients_with_backward_differences(x, ts)
+
+    def make_interpolation(self, ts, coeffs):
+        return torchcde.CubicSpline(coeffs, t=ts)
 
     def __call__(self, t):
         """
