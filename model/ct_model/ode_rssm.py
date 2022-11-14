@@ -9,7 +9,7 @@ from model.common import DiagMultivariateNormal as MultivariateNormal, MLP
 from model.func import normal_differential_sample, multivariate_normal_kl_loss, kld_gauss
 from model.ct_model import ODEFunc
 from model.ct_model.diffeq_solver import solve_diffeq
-from model.ct_model.interpolation import ConstInterpolation, KernelInterpolation
+from model.ct_model.interpolation import interpolate, ConstInterpolation
 from einops import rearrange
 from torch.nn import GRUCell
 
@@ -18,7 +18,7 @@ class ODERSSM(nn.Module):
 
     def __init__(self, input_size, state_size, observations_size,
                  ode_solver='dopri5', k=16, D=5, ode_hidden_dim=50, ode_num_layers=1, rtol=1e-3, atol=1e-4,
-                 ode_type='normal', detach='all', weight='average', ode_ratio='half', iw_trajs=1, odernn_encoder=False,
+                 ode_type='normal', detach='all', weight='average', ode_ratio='half', iw_trajs=1,
                  z_in_ode=False, input_interpolation=True):
 
         super(ODERSSM, self).__init__()
@@ -29,7 +29,6 @@ class ODERSSM(nn.Module):
         self.observations_size = observations_size
         self.state_size = state_size
         self.input_size = input_size
-        self.odernn_encoder = odernn_encoder
         self.z_in_ode = z_in_ode
         self.iw_trajs = iw_trajs
         self.input_interpolation = input_interpolation
@@ -75,7 +74,7 @@ class ODERSSM(nn.Module):
             if self.z_in_ode:
                 y = torch.cat([y, z.unsqueeze(0).repeat(2, 1, 1)], dim=-1)
             T = torch.stack([torch.zeros_like(dt), dt], dim=0)
-            inputs = KernelInterpolation(T, y)
+            inputs = interpolate('gp', T, y, batched=True)
         else:
             inputs = ConstInterpolation(
                 torch.cat([u, z], dim=-1) if self.z_in_ode else u,
@@ -362,7 +361,8 @@ class ODERSSM(nn.Module):
             ode_func = ODEFunc(
                 ode_net=self.gradient_net,
                 inputs_interpolation=ode_inputs,
-                ode_type=self.ode_type)
+                ode_type=self.ode_type
+            )
 
             h_seq = split_first_dim(
                 solve_diffeq(ode_func, h_seq,

@@ -14,4 +14,5 @@ atol: 0.00001
 iw_trajs: 1
 odernn_encoder: no
 z_in_ode: no
+input_interpolation: no
 

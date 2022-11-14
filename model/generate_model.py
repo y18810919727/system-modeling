@@ -147,8 +147,8 @@ def generate_model(args):
             detach=args.model.detach,
             ode_ratio=args.model.ode_ratio,
             iw_trajs=args.model.iw_trajs,
-            odernn_encoder=args.model.odernn_encoder,
-            z_in_ode=args.model.z_in_ode
+            z_in_ode=args.model.z_in_ode,
+            input_interpolation=args.model.input_interpolation,
         )
     elif args.model.type == 'time_aware':
         assert args.ct_time
